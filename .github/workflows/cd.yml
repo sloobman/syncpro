@@ -1,0 +1,39 @@
+name: CD Auto-Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-production:
+    name: Deploy to Production VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Starting deployment on VPS..."
+            cd ${{ secrets.VPS_DEPLOY_PATH || '/opt/syncpro' }}
+
+            echo "📥 Pulling latest changes from main..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "🐳 Building and starting production containers..."
+            docker compose -f docker-compose.prod.yml down --remove-orphans || true
+            docker compose -f docker-compose.prod.yml up -d --build
+
+            echo "🧹 Cleaning up unused Docker images..."
+            docker image prune -af --filter "until=48h"
+
+            echo "✅ Deployment successful!"
