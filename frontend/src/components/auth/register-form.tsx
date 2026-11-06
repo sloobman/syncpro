@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -14,6 +15,7 @@ import { registerSchema, type RegisterFormValues } from "@/lib/validators/auth";
 import { PasswordStrength } from "@/components/auth/password-strength";
 
 export function RegisterForm() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -43,7 +45,8 @@ export function RegisterForm() {
       setApiError(null);
       // Placeholder for API call
       console.log("Register form data:", data);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      router.push("/dashboard");
     } catch {
       setApiError("Не удалось создать аккаунт. Попробуйте позже.");
     }

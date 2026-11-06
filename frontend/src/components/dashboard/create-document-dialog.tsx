@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, FileText, BookOpen, Presentation, Code2 } from "lucide-react";
 import {
   Dialog,
@@ -14,13 +15,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 const templates = [
   { id: "blank", name: "Пустой документ", icon: FileText, desc: "Чистый лист для свободного письма" },
@@ -36,6 +30,7 @@ export function CreateDocumentDialog({
   workspaceId?: string;
   children?: React.ReactNode;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("blank");
@@ -50,8 +45,7 @@ export function CreateDocumentDialog({
       setLoading(false);
       setOpen(false);
       setTitle("");
-      // Redirect or state update
-      window.location.href = `/doc/doc_${Date.now()}`;
+      router.push(`/doc/doc_${Date.now()}`);
     }, 500);
   };
 

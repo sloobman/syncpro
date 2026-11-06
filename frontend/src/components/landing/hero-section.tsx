@@ -72,10 +72,10 @@ export function HeroSection() {
             variants={fadeUp}
           >
             <Button size="lg" asChild>
-              <Link href="/register">Начать бесплатно</Link>
+              <Link href="/auth/register">Начать бесплатно</Link>
             </Button>
             <Button size="lg" variant="outline" asChild>
-              <Link href="#demo" className="gap-2">
+              <Link href="/doc/demo" className="gap-2">
                 Смотреть демо
                 <ArrowRight className="h-4 w-4" />
               </Link>

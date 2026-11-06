@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -13,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { loginSchema, type LoginFormValues } from "@/lib/validators/auth";
 
 export function LoginForm() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
@@ -33,7 +35,8 @@ export function LoginForm() {
       setApiError(null);
       // Placeholder for API call
       console.log("Login form data:", data);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      router.push("/dashboard");
     } catch {
       setApiError("Неверный email или пароль. Попробуйте ещё раз.");
     }

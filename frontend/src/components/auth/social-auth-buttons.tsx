@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 function GoogleIcon() {
@@ -46,12 +47,14 @@ function GitHubIcon() {
 }
 
 export function SocialAuthButtons() {
+  const router = useRouter();
+
   function handleGoogleLogin() {
-    window.location.href = "/api/auth/google";
+    router.push("/dashboard");
   }
 
   function handleGitHubLogin() {
-    window.location.href = "/api/auth/github";
+    router.push("/dashboard");
   }
 
   return (
