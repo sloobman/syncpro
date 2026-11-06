@@ -2,20 +2,18 @@
 
 import { useState } from "react";
 import {
-  ListTree,
-  MessageSquare,
-  History,
-  GitBranch,
   ChevronRight,
   ChevronLeft,
   Send,
-  Plus,
+  GitMerge,
+  FileDiff,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
+import { BranchGraphView } from "@/components/editor/branch-graph-view";
+import type { MerkleCommit } from "@/lib/merkle-dag/types";
 
 const mockHeadings = [
   { id: "h1", text: "1. Концепция и цель проекта", level: 1 },
@@ -40,13 +38,25 @@ const mockComments = [
   },
 ];
 
+interface EditorSidebarProps {
+  open: boolean;
+  onToggle: () => void;
+  commits?: MerkleCommit[];
+  currentCommitId?: string;
+  onSelectCommit?: (id: string) => void;
+  onOpenMergeDialog?: () => void;
+  onOpenDiffDialog?: () => void;
+}
+
 export function EditorSidebar({
   open,
   onToggle,
-}: {
-  open: boolean;
-  onToggle: () => void;
-}) {
+  commits = [],
+  currentCommitId = "",
+  onSelectCommit = () => {},
+  onOpenMergeDialog,
+  onOpenDiffDialog,
+}: EditorSidebarProps) {
   const [commentText, setCommentText] = useState("");
 
   if (!open) {
@@ -65,7 +75,7 @@ export function EditorSidebar({
   }
 
   return (
-    <aside className="w-72 border-l border-border bg-card flex flex-col h-full z-10 shadow-sm select-none">
+    <aside className="w-80 border-l border-border bg-card flex flex-col h-full z-10 shadow-sm select-none">
       <div className="flex items-center justify-between px-3 h-10 border-b border-border">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
           Панель документа
@@ -80,7 +90,7 @@ export function EditorSidebar({
         </Button>
       </div>
 
-      <Tabs defaultValue="toc" className="flex-1 flex flex-col min-h-0">
+      <Tabs defaultValue="history" className="flex-1 flex flex-col min-h-0">
         <div className="px-2 pt-2 border-b border-border">
           <TabsList className="w-full grid grid-cols-3 h-8">
             <TabsTrigger value="toc" className="text-xs px-1">
@@ -90,7 +100,7 @@ export function EditorSidebar({
               Комменты
             </TabsTrigger>
             <TabsTrigger value="history" className="text-xs px-1">
-              Ветки
+              Ветки (DAG)
             </TabsTrigger>
           </TabsList>
         </div>
@@ -149,34 +159,39 @@ export function EditorSidebar({
         </TabsContent>
 
         {/* Version control / branches */}
-        <TabsContent value="history" className="flex-1 p-0 m-0">
-          <ScrollArea className="h-full p-3">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-muted-foreground">
-                  Коммиты (Merkle-DAG)
-                </span>
-                <span className="text-[11px] font-mono text-primary">#9f83c1</span>
-              </div>
+        <TabsContent value="history" className="flex-1 flex flex-col p-0 m-0 min-h-0">
+          {/* Quick action buttons for 3-Way Merge & Diff */}
+          <div className="p-2.5 border-b border-border flex gap-1.5 bg-muted/20">
+            {onOpenMergeDialog && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onOpenMergeDialog}
+                className="flex-1 h-7 text-[11px] gap-1 px-2"
+              >
+                <GitMerge className="h-3 w-3 text-primary" />
+                <span>3-Way Merge</span>
+              </Button>
+            )}
+            {onOpenDiffDialog && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onOpenDiffDialog}
+                className="flex-1 h-7 text-[11px] gap-1 px-2"
+              >
+                <FileDiff className="h-3 w-3 text-amber-500" />
+                <span>Diff правок</span>
+              </Button>
+            )}
+          </div>
 
-              <div className="relative border-l-2 border-primary/30 ml-2 space-y-4 py-1">
-                <div className="relative pl-4">
-                  <span className="absolute -left-[5px] top-1.5 h-2 w-2 rounded-full bg-primary" />
-                  <p className="text-xs font-medium text-foreground">Обновлен раздел 1.2</p>
-                  <p className="text-[10px] text-muted-foreground">Алиса • 12 минут назад</p>
-                </div>
-                <div className="relative pl-4">
-                  <span className="absolute -left-[5px] top-1.5 h-2 w-2 rounded-full bg-muted-foreground" />
-                  <p className="text-xs font-medium text-foreground">Слияние feature/dag-sync</p>
-                  <p className="text-[10px] text-muted-foreground">Боб • 2 часа назад</p>
-                </div>
-                <div className="relative pl-4">
-                  <span className="absolute -left-[5px] top-1.5 h-2 w-2 rounded-full bg-muted-foreground" />
-                  <p className="text-xs font-medium text-foreground">Начальный импорт документа</p>
-                  <p className="text-[10px] text-muted-foreground">Вы • Вчера</p>
-                </div>
-              </div>
-            </div>
+          <ScrollArea className="flex-1 p-3">
+            <BranchGraphView
+              commits={commits}
+              currentCommitId={currentCommitId}
+              onSelectCommit={onSelectCommit}
+            />
           </ScrollArea>
         </TabsContent>
       </Tabs>
