@@ -70,6 +70,13 @@ git checkout main
 # 6. Создание рабочего .env файла из шаблона
 cp .env.prod.example .env
 nano .env  # Заполните надежные пароли для Postgres, Redis и MinIO
+
+# 7. Размещение SSL-сертификатов Cloudflare Origin CA
+mkdir -p /opt/syncpro/nginx/certs
+nano /opt/syncpro/nginx/certs/cert.pem  # Вставьте Origin Certificate
+nano /opt/syncpro/nginx/certs/key.pem   # Вставьте Private Key
+chmod 600 /opt/syncpro/nginx/certs/key.pem
+chmod 644 /opt/syncpro/nginx/certs/cert.pem
 ```
 
 ---
