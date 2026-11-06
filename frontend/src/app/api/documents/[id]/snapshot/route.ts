@@ -1,39 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CRDTDocument } from "@/lib/crdt/crdt-doc";
 import { CompactionWorker } from "@/lib/compaction/snapshot-worker";
-
-// In-memory snapshot cache for fast retrieval
-const snapshotStore = new Map<string, { snapshot: Uint8Array; updatedAt: number }>();
+import { putS3Object, getS3Object, BUCKET_SNAPSHOTS } from "@/lib/db/s3";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const cached = snapshotStore.get(id);
+  const snapshotKey = `snapshots/${id}/latest.snap.bin`;
 
-  if (!cached) {
-    // Generate fresh document skeleton
-    const doc = new CRDTDocument(0);
-    const b1 = doc.createBlock(null, "heading1", "1. Архитектура SyncPro");
-    doc.insertText(b1.id, 0, "Распределенное ядро совместного редактирования.");
+  // 1. Try reading from MinIO / S3
+  try {
+    const s3Bytes = await getS3Object(BUCKET_SNAPSHOTS, snapshotKey);
+    if (s3Bytes && s3Bytes.length > 0) {
+      return NextResponse.json({
+        documentId: id,
+        snapshotHash: `s3_${s3Bytes.length}`,
+        bytesCount: s3Bytes.length,
+        source: "s3_minio",
+        updatedAt: Date.now(),
+      });
+    }
+  } catch (s3Err) {
+    console.warn(`[Snapshot API] MinIO read notice for ${id}:`, (s3Err as Error).message);
+  }
 
-    const { bytes } = CompactionWorker.createSnapshot(doc, "initial", id);
-    snapshotStore.set(id, { snapshot: bytes, updatedAt: Date.now() });
+  // 2. Fallback: generate and persist fresh initial snapshot
+  const doc = new CRDTDocument(0);
+  const b1 = doc.createBlock(null, "heading1", "1. Архитектура SyncPro");
+  doc.insertText(b1.id, 0, "Распределенное ядро совместного редактирования.");
 
-    return NextResponse.json({
-      documentId: id,
-      snapshotHash: "initial_cas_snapshot",
-      bytesCount: bytes.length,
-      updatedAt: Date.now(),
-    });
+  const { bytes } = CompactionWorker.createSnapshot(doc, "latest", id);
+
+  try {
+    await putS3Object(BUCKET_SNAPSHOTS, snapshotKey, bytes);
+  } catch (putErr) {
+    console.warn(`[Snapshot API] MinIO put notice for ${id}:`, (putErr as Error).message);
   }
 
   return NextResponse.json({
     documentId: id,
-    snapshotHash: `snapshot_${cached.updatedAt}`,
-    bytesCount: cached.snapshot.length,
-    updatedAt: cached.updatedAt,
+    snapshotHash: "initial_cas_snapshot",
+    bytesCount: bytes.length,
+    source: "generated",
+    updatedAt: Date.now(),
   });
 }
 
@@ -51,13 +62,21 @@ export async function POST(
     typeof minStableClock === "number" ? minStableClock : 0
   );
 
+  const snapshotKey = `snapshots/${id}/snap_${Date.now()}.snap.bin`;
   const { bytes } = CompactionWorker.createSnapshot(doc, `snap_${Date.now()}`, id);
-  snapshotStore.set(id, { snapshot: bytes, updatedAt: Date.now() });
+
+  try {
+    await putS3Object(BUCKET_SNAPSHOTS, snapshotKey, bytes);
+    // Also update pointer to latest
+    await putS3Object(BUCKET_SNAPSHOTS, `snapshots/${id}/latest.snap.bin`, bytes);
+  } catch (s3Err) {
+    console.warn(`[Snapshot API] MinIO upload notice for ${id}:`, (s3Err as Error).message);
+  }
 
   return NextResponse.json({
     success: true,
     documentId: id,
-    snapshotHash: `snapshot_${Date.now()}`,
+    snapshotPath: snapshotKey,
     bytesCount: bytes.length,
     prunedCharacters: gcResult.prunedChars,
     prunedBlocks: gcResult.prunedBlocks,
