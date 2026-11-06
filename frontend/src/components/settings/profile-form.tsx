@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { User, Camera, Trash2, Check } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Camera, Trash2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,20 +15,34 @@ import {
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 export function ProfileForm() {
-  const [name, setName] = useState("Иван Петров");
-  const [email] = useState("ivan@syncpro.ru");
+  const router = useRouter();
+  const { user, updateProfile, logout } = useAuthStore();
+
+  const [name, setName] = useState(user?.name || "Пользователь");
+  const [email] = useState(user?.email || "user@syncpro.dev");
   const [company, setCompany] = useState("SyncPro Core Team");
-  const [timezone, setTimezone] = useState("Europe/Moscow");
-  const [locale, setLocale] = useState("ru");
+  const [timezone, setTimezone] = useState<string>(user?.timezone || "Europe/Moscow");
+  const [locale, setLocale] = useState<"ru" | "en">(user?.locale || "ru");
   const [saved, setSaved] = useState(false);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    updateProfile({ name, timezone, locale });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  const initials = name
+    ? name
+        .split(" ")
+        .map((p) => p[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "П";
 
   return (
     <form onSubmit={handleSave} className="space-y-6 max-w-xl">
@@ -36,7 +51,7 @@ export function ProfileForm() {
         <div className="relative group">
           <Avatar className="h-16 w-16">
             <AvatarFallback className="text-lg bg-primary/10 text-primary font-bold">
-              ИП
+              {initials}
             </AvatarFallback>
           </Avatar>
           <button
@@ -105,7 +120,7 @@ export function ProfileForm() {
 
           <div className="space-y-1.5">
             <Label>Язык интерфейса</Label>
-            <Select value={locale} onValueChange={setLocale}>
+            <Select value={locale} onValueChange={(val) => setLocale(val as "ru" | "en")}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -140,7 +155,16 @@ export function ProfileForm() {
         <p className="text-xs text-muted-foreground leading-relaxed">
           После удаления вашей учётной записи все личные документы, локальные реплики и доступы к проектам будут безвозвратно удалены.
         </p>
-        <Button type="button" variant="destructive" size="sm" className="gap-2">
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          className="gap-2"
+          onClick={() => {
+            logout();
+            router.push("/auth/login");
+          }}
+        >
           <Trash2 className="h-3.5 w-3.5" />
           Удалить мой аккаунт
         </Button>

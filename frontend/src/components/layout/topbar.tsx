@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Search, Bell, Menu, LogOut, User as UserIcon, Settings, Moon, Sun } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, Bell, Menu, LogOut, User as UserIcon, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,8 +19,25 @@ import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
 export function Topbar() {
+  const router = useRouter();
   const { toggleSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
+
+  const handleLogout = () => {
+    logout();
+    router.push("/auth/login");
+  };
+
+  const displayName = user?.name || "Гость";
+  const displayEmail = user?.email || "guest@syncpro.dev";
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((p) => p[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "ГС";
 
   return (
     <header className="h-16 border-b border-border bg-card/50 backdrop-blur-sm px-4 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30">
@@ -49,9 +67,9 @@ export function Topbar() {
         <ThemeToggle />
 
         {/* Notifications */}
-        <Button variant="ghost" size="icon" className="h-9 w-9 relative text-muted-foreground">
+        <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground relative">
           <Bell className="h-4 w-4" />
-          <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-primary" />
+          <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-blue-600" />
         </Button>
 
         {/* User profile dropdown */}
@@ -60,7 +78,7 @@ export function Topbar() {
             <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0">
               <Avatar className="h-9 w-9">
                 <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
-                  {user ? user.name.slice(0, 2).toUpperCase() : "ИП"}
+                  {initials}
                 </AvatarFallback>
               </Avatar>
             </Button>
@@ -68,10 +86,8 @@ export function Topbar() {
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">{user ? user.name : "Иван Петров"}</p>
-                <p className="text-xs leading-none text-muted-foreground">
-                  {user ? user.email : "ivan@syncpro.ru"}
-                </p>
+                <p className="text-sm font-medium leading-none">{displayName}</p>
+                <p className="text-xs leading-none text-muted-foreground">{displayEmail}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -90,7 +106,7 @@ export function Topbar() {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive cursor-pointer flex items-center gap-2"
-              onClick={() => logout()}
+              onClick={handleLogout}
             >
               <LogOut className="h-4 w-4" />
               <span>Выйти</span>

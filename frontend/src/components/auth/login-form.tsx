@@ -12,9 +12,11 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { loginSchema, type LoginFormValues } from "@/lib/validators/auth";
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 export function LoginForm() {
   const router = useRouter();
+  const login = useAuthStore((state) => state.login);
   const [showPassword, setShowPassword] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
@@ -33,9 +35,7 @@ export function LoginForm() {
   async function onSubmit(data: LoginFormValues) {
     try {
       setApiError(null);
-      // Placeholder for API call
-      console.log("Login form data:", data);
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await login(data.email, data.password);
       router.push("/dashboard");
     } catch {
       setApiError("Неверный email или пароль. Попробуйте ещё раз.");
