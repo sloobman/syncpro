@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { computeCommitHash } from "@/lib/merkle-dag/hash";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
+import { MerkleDAGRepository } from "@/lib/db/dag-repository";
 
 export async function POST(
   request: NextRequest,
@@ -17,7 +18,7 @@ export async function POST(
     );
   }
 
-  // Create deterministic 3-Way Merge commit record
+  // Parents of the merge commit in the Merkle-DAG
   const parents = [
     targetCommitId || "target_head",
     sourceCommitId || "source_head",
@@ -30,7 +31,7 @@ export async function POST(
     stateVector: {},
     message: `Merge branch '${sourceBranch}' into '${targetBranch}' via 3-Way CRDT Merge`,
     author: {
-      userId: author?.userId || "system",
+      userId: author?.userId || "00000000-0000-0000-0000-000000000000",
       name: author?.name || "SyncPro 3-Way Merge Engine",
       avatarUrl: author?.avatarUrl ?? null,
     },
@@ -45,6 +46,12 @@ export async function POST(
     crdtDeltaStoragePath: `deltas/${id}/${mergeCommitId}.bin`,
     snapshotStoragePath: `snapshots/${id}/${mergeCommitId}.snap.bin`,
   };
+
+  try {
+    await MerkleDAGRepository.saveCommit(mergeCommit);
+  } catch (dbErr) {
+    console.warn(`[Merge API] PostgreSQL save notice for merge commit:`, (dbErr as Error).message);
+  }
 
   return NextResponse.json({
     success: true,
