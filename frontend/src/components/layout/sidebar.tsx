@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   FileText,
   Settings,
@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Plus,
   Compass,
+  LogOut,
 } from "lucide-react";
 import { Logo } from "@/components/shared/logo";
 import { Button } from "@/components/ui/button";
@@ -31,8 +32,25 @@ const mockRecentDocs = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { sidebarCollapsed, collapseSidebar } = useUIStore();
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
+
+  const handleLogout = () => {
+    logout();
+    router.push("/auth/login");
+  };
+
+  const displayName = user?.name || "Гость";
+  const displayEmail = user?.email || "guest@syncpro.dev";
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((p) => p[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "ГС";
 
   return (
     <aside
@@ -108,12 +126,8 @@ export function Sidebar() {
                       sidebarCollapsed && "justify-center px-0"
                     )}
                   >
-                    <span className="text-base leading-none shrink-0">
-                      {ws.emoji}
-                    </span>
-                    {!sidebarCollapsed && (
-                      <span className="truncate">{ws.name}</span>
-                    )}
+                    <span className="text-base shrink-0">{ws.emoji}</span>
+                    {!sidebarCollapsed && <span className="truncate">{ws.name}</span>}
                   </span>
                 </Link>
               );
@@ -122,28 +136,33 @@ export function Sidebar() {
         </div>
 
         {/* Recent Documents */}
-        {!sidebarCollapsed && (
-          <div className="mt-6 px-3">
+        <div className="mt-6 px-3">
+          {!sidebarCollapsed && (
             <div className="px-3 mb-2">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Недавние
               </span>
             </div>
-            <div className="space-y-1">
-              {mockRecentDocs.map((doc) => (
-                <Link key={doc.id} href={`/doc/${doc.id}`}>
-                  <span className="flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors group">
-                    <FileText className="h-4 w-4 shrink-0 group-hover:text-primary transition-colors" />
-                    <span className="truncate">{doc.title}</span>
-                  </span>
-                </Link>
-              ))}
-            </div>
+          )}
+          <div className="space-y-1">
+            {mockRecentDocs.map((doc) => (
+              <Link key={doc.id} href={`/doc/${doc.id}`}>
+                <span
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg transition-colors",
+                    sidebarCollapsed && "justify-center px-0"
+                  )}
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                  {!sidebarCollapsed && <span className="truncate">{doc.title}</span>}
+                </span>
+              </Link>
+            ))}
           </div>
-        )}
+        </div>
       </ScrollArea>
 
-      {/* Bottom Profile / Settings */}
+      {/* Bottom Profile and Controls */}
       <div className="p-3 border-t border-border space-y-1">
         <Link href="/settings">
           <span
@@ -159,24 +178,38 @@ export function Sidebar() {
 
         <div
           className={cn(
-            "flex items-center gap-3 px-2 py-2 rounded-lg bg-muted/40",
+            "flex items-center justify-between px-2 py-2 rounded-lg bg-muted/40",
             sidebarCollapsed && "justify-center px-0"
           )}
         >
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-primary/10 text-primary text-xs">
-              {user ? user.name.slice(0, 2).toUpperCase() : "СП"}
-            </AvatarFallback>
-          </Avatar>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Avatar className="h-8 w-8 shrink-0">
+              <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+            {!sidebarCollapsed && (
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-medium text-foreground truncate">
+                  {displayName}
+                </span>
+                <span className="text-[10px] text-muted-foreground truncate">
+                  {displayEmail}
+                </span>
+              </div>
+            )}
+          </div>
+
           {!sidebarCollapsed && (
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-medium text-foreground truncate">
-                {user ? user.name : "Иван Петров"}
-              </span>
-              <span className="text-[10px] text-muted-foreground truncate">
-                {user ? user.email : "ivan@syncpro.ru"}
-              </span>
-            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleLogout}
+              className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+              title="Выйти из аккаунта"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </Button>
           )}
         </div>
       </div>
