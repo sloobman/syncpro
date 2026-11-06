@@ -67,7 +67,7 @@ export function CtaSection() {
               )}
               asChild
             >
-              <Link href="/register">Создать аккаунт бесплатно</Link>
+              <Link href="/auth/register">Создать аккаунт бесплатно</Link>
             </Button>
           </motion.div>
         </div>

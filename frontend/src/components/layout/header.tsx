@@ -49,10 +49,10 @@ export function Header() {
         {/* Desktop CTA */}
         <div className="hidden items-center gap-2 md:flex">
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/login">Войти</Link>
+            <Link href="/auth/login">Войти</Link>
           </Button>
           <Button size="sm" asChild>
-            <Link href="/register">Начать бесплатно</Link>
+            <Link href="/auth/register">Начать бесплатно</Link>
           </Button>
         </div>
 
@@ -120,12 +120,12 @@ export function Header() {
 
                 <div className="mt-4 border-t border-border pt-4">
                   <Button variant="ghost" className="w-full justify-start" asChild>
-                    <Link href="/login" onClick={() => setMobileOpen(false)}>
+                    <Link href="/auth/login" onClick={() => setMobileOpen(false)}>
                       Войти
                     </Link>
                   </Button>
                   <Button className="mt-2 w-full" asChild>
-                    <Link href="/register" onClick={() => setMobileOpen(false)}>
+                    <Link href="/auth/register" onClick={() => setMobileOpen(false)}>
                       Начать бесплатно
                     </Link>
                   </Button>
