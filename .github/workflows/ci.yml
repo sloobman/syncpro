@@ -9,6 +9,7 @@ on:
     branches:
       - main
       - dev
+  workflow_dispatch:
 
 jobs:
   lint-and-typecheck:
@@ -36,6 +37,10 @@ jobs:
       - name: Run Typecheck
         working-directory: ./frontend
         run: npx tsc --noEmit
+
+      - name: Run Unit & Chaos Tests
+        working-directory: ./frontend
+        run: npm test
 
   build:
     name: Build Frontend
