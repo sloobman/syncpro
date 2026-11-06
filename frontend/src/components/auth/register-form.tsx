@@ -13,9 +13,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { registerSchema, type RegisterFormValues } from "@/lib/validators/auth";
 import { PasswordStrength } from "@/components/auth/password-strength";
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 export function RegisterForm() {
   const router = useRouter();
+  const registerUser = useAuthStore((state) => state.register);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -43,9 +45,11 @@ export function RegisterForm() {
   async function onSubmit(data: RegisterFormValues) {
     try {
       setApiError(null);
-      // Placeholder for API call
-      console.log("Register form data:", data);
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await registerUser({
+        name: data.name,
+        email: data.email,
+        password: data.password,
+      });
       router.push("/dashboard");
     } catch {
       setApiError("Не удалось создать аккаунт. Попробуйте позже.");
@@ -64,11 +68,10 @@ export function RegisterForm() {
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="register-name">Полное имя</Label>
+        <Label htmlFor="register-name">Имя</Label>
         <Input
           id="register-name"
-          type="text"
-          placeholder="Иван Иванов"
+          placeholder="Иван Петров"
           autoComplete="name"
           aria-invalid={!!errors.name}
           className={cn(errors.name && "border-red-500 focus-visible:ring-red-500")}
@@ -101,7 +104,7 @@ export function RegisterForm() {
           <Input
             id="register-password"
             type={showPassword ? "text" : "password"}
-            placeholder="Минимум 8 символов"
+            placeholder="Придумайте пароль"
             autoComplete="new-password"
             aria-invalid={!!errors.password}
             className={cn(
@@ -128,11 +131,11 @@ export function RegisterForm() {
         {errors.password && (
           <p className="text-xs text-red-500">{errors.password.message}</p>
         )}
-        <PasswordStrength password={watchedPassword} />
+        <PasswordStrength password={watchedPassword ?? ""} />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="register-confirm-password">Подтвердите пароль</Label>
+        <Label htmlFor="register-confirm-password">Подтверждение пароля</Label>
         <div className="relative">
           <Input
             id="register-confirm-password"
@@ -171,44 +174,46 @@ export function RegisterForm() {
         )}
       </div>
 
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="accept-terms"
-          aria-invalid={!!errors.acceptTerms}
-          onCheckedChange={(checked) => {
-            setValue("acceptTerms", (checked === true) as unknown as true);
-            trigger("acceptTerms");
-          }}
-        />
-        <Label
-          htmlFor="accept-terms"
-          className="text-sm font-normal leading-snug cursor-pointer"
-        >
-          Я согласен с{" "}
-          <Link
-            href="/terms"
-            className="font-medium text-primary hover:underline"
-            target="_blank"
+      <div className="space-y-2">
+        <div className="flex items-start gap-2">
+          <Checkbox
+            id="accept-terms"
+            aria-label="Принять условия соглашения"
+            onCheckedChange={(checked) => {
+              setValue("acceptTerms", checked === true ? (true as unknown as true) : (false as unknown as true));
+              trigger("acceptTerms");
+            }}
+          />
+          <Label
+            htmlFor="accept-terms"
+            className="text-sm font-normal leading-snug cursor-pointer"
           >
-            Условиями использования
-          </Link>{" "}
-          и{" "}
-          <Link
-            href="/privacy"
-            className="font-medium text-primary hover:underline"
-            target="_blank"
-          >
-            Политикой конфиденциальности
-          </Link>
-        </Label>
+            Я согласен с{" "}
+            <Link
+              href="/terms"
+              className="font-medium text-primary hover:underline"
+              target="_blank"
+            >
+              условиями использования
+            </Link>{" "}
+            и{" "}
+            <Link
+              href="/privacy"
+              className="font-medium text-primary hover:underline"
+              target="_blank"
+            >
+              политикой конфиденциальности
+            </Link>
+          </Label>
+        </div>
+        {errors.acceptTerms && (
+          <p className="text-xs text-red-500">{errors.acceptTerms.message}</p>
+        )}
       </div>
-      {errors.acceptTerms && (
-        <p className="text-xs text-red-500">{errors.acceptTerms.message}</p>
-      )}
 
       <Button type="submit" className="w-full" disabled={isSubmitting}>
         {isSubmitting && <Loader2 className="size-4 animate-spin" />}
-        Создать аккаунт
+        Зарегистрироваться
       </Button>
     </form>
   );
