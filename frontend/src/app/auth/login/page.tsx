@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { LoginForm } from "@/components/auth/login-form";
 import { SocialAuthButtons } from "@/components/auth/social-auth-buttons";
 import { Separator } from "@/components/ui/separator";
+
+export const metadata: Metadata = {
+  title: "Вход в аккаунт — SyncPro",
+};
 
 export default function LoginPage() {
   return (

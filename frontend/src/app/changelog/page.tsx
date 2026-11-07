@@ -1,9 +1,15 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { ArrowLeft, Sparkles, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+
+export const metadata: Metadata = {
+  title: "История обновлений (Changelog) — SyncPro",
+  description: "Список релизов, новых возможностей и исправлений платформы SyncPro.",
+};
 
 export default function ChangelogPage() {
   const releases = [

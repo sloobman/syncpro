@@ -3,6 +3,10 @@ import { getUserFromRequest } from "@/lib/auth/jwt";
 import { UserRepository } from "@/lib/auth/user-repository";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 
+const PASSWORD_UPPERCASE = /[A-Z]/;
+const PASSWORD_DIGIT = /\d/;
+const PASSWORD_SPECIAL = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/;
+
 export async function POST(request: NextRequest) {
   try {
     const payload = getUserFromRequest(request);
@@ -16,9 +20,23 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { currentPassword, newPassword } = body;
 
-    if (!currentPassword || !newPassword || newPassword.length < 8) {
+    if (!currentPassword) {
       return NextResponse.json(
-        { error: "Новый пароль должен содержать минимум 8 символов" },
+        { error: "Укажите текущий пароль" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      !newPassword ||
+      typeof newPassword !== "string" ||
+      newPassword.length < 8 ||
+      !PASSWORD_UPPERCASE.test(newPassword) ||
+      !PASSWORD_DIGIT.test(newPassword) ||
+      !PASSWORD_SPECIAL.test(newPassword)
+    ) {
+      return NextResponse.json(
+        { error: "Новый пароль должен содержать минимум 8 символов, заглавную букву, цифру и спецсимвол" },
         { status: 400 }
       );
     }
