@@ -17,10 +17,11 @@ interface AuthActions {
     password?: string;
   }) => Promise<void>;
   loginOAuth: (provider: "google" | "github", profile?: { name?: string; email?: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   setUser: (user: User) => void;
   updateProfile: (data: Partial<User>) => void;
   refreshToken: () => Promise<void>;
+  checkAuth: () => Promise<void>;
 }
 
 type AuthStore = AuthState & AuthActions;
@@ -33,99 +34,111 @@ export const useAuthStore = create<AuthStore>()(
       isAuthenticated: false,
       isLoading: false,
 
-      login: async (email: string, _password?: string) => {
+      login: async (email: string, password?: string) => {
         set({ isLoading: true });
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        
-        // Derive name from email if not present
-        const derivedName = email.split("@")[0].replace(/[._-]/g, " ");
-        const capitalizedName = derivedName.charAt(0).toUpperCase() + derivedName.slice(1);
+        try {
+          const res = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
 
-        const user: User = {
-          id: `usr_${Date.now()}`,
-          name: capitalizedName || "Пользователь",
-          email: email.trim(),
-          avatarUrl: null,
-          timezone: "Europe/Moscow",
-          locale: "ru",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || "Неверный email или пароль");
+          }
 
-        const accessToken = `jwt_token_${Date.now()}`;
-        set({
-          user,
-          accessToken,
-          isAuthenticated: true,
-          isLoading: false,
-        });
+          set({
+            user: data.user,
+            accessToken: data.token,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        } catch (error) {
+          set({ isLoading: false });
+          throw error;
+        }
       },
 
       register: async (data) => {
         set({ isLoading: true });
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        
-        const user: User = {
-          id: `usr_${Date.now()}`,
-          name: data.name.trim() || "Новый пользователь",
-          email: data.email.trim(),
-          avatarUrl: null,
-          timezone: "Europe/Moscow",
-          locale: "ru",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+        try {
+          const res = await fetch("/api/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          });
 
-        const accessToken = `jwt_token_${Date.now()}`;
-        set({
-          user,
-          accessToken,
-          isAuthenticated: true,
-          isLoading: false,
-        });
+          const resData = await res.json();
+          if (!res.ok) {
+            throw new Error(resData.error || "Не удалось зарегистрироваться");
+          }
+
+          set({
+            user: resData.user,
+            accessToken: resData.token,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        } catch (error) {
+          set({ isLoading: false });
+          throw error;
+        }
       },
 
       loginOAuth: async (provider, profile) => {
         set({ isLoading: true });
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        
-        const defaultName = provider === "google" ? "Google Пользователь" : "GitHub Разработчик";
-        const defaultEmail = provider === "google" ? "user@gmail.com" : "dev@github.com";
+        try {
+          const defaultName = provider === "google" ? "Google Пользователь" : "GitHub Разработчик";
+          const defaultEmail = provider === "google" ? "google.user@syncpro.dev" : "github.dev@syncpro.dev";
 
-        const user: User = {
-          id: `usr_${provider}_${Date.now()}`,
-          name: profile?.name || defaultName,
-          email: profile?.email || defaultEmail,
-          avatarUrl: null,
-          timezone: "Europe/Moscow",
-          locale: "ru",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+          const res = await fetch("/api/auth/oauth", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              provider,
+              name: profile?.name || defaultName,
+              email: profile?.email || defaultEmail,
+            }),
+          });
 
-        const accessToken = `oauth_token_${provider}_${Date.now()}`;
-        set({
-          user,
-          accessToken,
-          isAuthenticated: true,
-          isLoading: false,
-        });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || "Ошибка OAuth авторизации");
+          }
+
+          set({
+            user: data.user,
+            accessToken: data.token,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        } catch (error) {
+          set({ isLoading: false });
+          throw error;
+        }
       },
 
-      logout: () => {
-        set({
-          user: null,
-          accessToken: null,
-          isAuthenticated: false,
-          isLoading: false,
-        });
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("syncpro-auth");
+      logout: async () => {
+        try {
+          await fetch("/api/auth/logout", { method: "POST" });
+        } catch {
+          // ignore network failure on logout
+        } finally {
+          set({
+            user: null,
+            accessToken: null,
+            isAuthenticated: false,
+            isLoading: false,
+          });
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("syncpro-auth");
+          }
         }
       },
 
       setUser: (user: User) => {
-        set({ user });
+        set({ user, isAuthenticated: !!user });
       },
 
       updateProfile: (data: Partial<User>) => {
@@ -142,9 +155,30 @@ export const useAuthStore = create<AuthStore>()(
 
       refreshToken: async () => {
         set({ isLoading: true });
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        const accessToken = `jwt_token_${Date.now()}`;
-        set({ accessToken, isLoading: false });
+        try {
+          await get().checkAuth();
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      checkAuth: async () => {
+        try {
+          const res = await fetch("/api/auth/me");
+          if (res.ok) {
+            const data = await res.json();
+            if (data.user) {
+              set({ user: data.user, isAuthenticated: true });
+            }
+          } else if (res.status === 401) {
+            set({ user: null, isAuthenticated: false, accessToken: null });
+            if (typeof window !== "undefined") {
+              localStorage.removeItem("syncpro-auth");
+            }
+          }
+        } catch {
+          // ignore offline checks
+        }
       },
     }),
     {

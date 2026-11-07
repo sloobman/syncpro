@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { UserPlus, Copy, Check, Trash2 } from "lucide-react";
+import { UserPlus, Copy, Check } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,11 +21,11 @@ import {
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { useAuthStore } from "@/lib/stores/auth-store";
 
-const mockMembers = [
-  { id: "u1", name: "Иван Петров (Вы)", email: "ivan@syncpro.ru", role: "Владелец" },
-  { id: "u2", name: "Алиса Смирнова", email: "alice@example.com", role: "Редактор" },
-  { id: "u3", name: "Боб Козлов", email: "bob@example.com", role: "Редактор" },
+const defaultTeamMembers = [
+  { id: "u2", name: "Алиса Смирнова", email: "alice@syncpro.dev", role: "Редактор" },
+  { id: "u3", name: "Константин Козлов", email: "konstantin@syncpro.dev", role: "Редактор" },
 ];
 
 export function InviteMembersDialog({
@@ -37,12 +37,22 @@ export function InviteMembersDialog({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("editor");
   const [copied, setCopied] = useState(false);
+  const { user } = useAuthStore();
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText("https://syncpro.ru/invite/invite_abc123xyz");
+    navigator.clipboard.writeText(typeof window !== "undefined" ? `${window.location.origin}/invite/demo-team` : "https://syncpro.dev/invite/demo-team");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const currentMember = {
+    id: user?.id || "me",
+    name: user?.name ? `${user.name} (Вы)` : "Вы",
+    email: user?.email || "user@syncpro.dev",
+    role: "Владелец",
+  };
+
+  const members = [currentMember, ...defaultTeamMembers];
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -87,10 +97,10 @@ export function InviteMembersDialog({
           {/* Members list */}
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              В пространстве ({mockMembers.length})
+              В пространстве ({members.length})
             </p>
             <div className="divide-y divide-border border rounded-lg overflow-hidden">
-              {mockMembers.map((m) => (
+              {members.map((m) => (
                 <div
                   key={m.id}
                   className="flex items-center justify-between p-3 bg-card"
@@ -130,7 +140,7 @@ export function InviteMembersDialog({
             <div className="flex gap-2">
               <Input
                 readOnly
-                value="https://syncpro.ru/invite/invite_abc123xyz"
+                value={typeof window !== "undefined" ? `${window.location.origin}/invite/demo-team` : "https://syncpro.dev/invite/demo-team"}
                 className="text-xs font-mono bg-muted/40"
               />
               <Button
