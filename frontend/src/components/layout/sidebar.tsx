@@ -14,7 +14,7 @@ import {
 import { Logo } from "@/components/shared/logo";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { CreateWorkspaceDialog } from "@/components/dashboard/create-workspace-dialog";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
@@ -190,6 +190,13 @@ export function Sidebar() {
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <Avatar className="h-7 w-7 rounded-lg ring-1 ring-border">
+              {user?.avatarUrl ? (
+                <AvatarImage
+                  src={user.avatarUrl}
+                  alt={displayName}
+                  className="rounded-lg object-cover"
+                />
+              ) : null}
               <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
                 {initials}
               </AvatarFallback>

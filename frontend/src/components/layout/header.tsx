@@ -7,6 +7,8 @@ import { Menu, X, FileCode2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 const navLinks = [
   { href: "#features", label: "Возможности" },
@@ -17,6 +19,7 @@ const navLinks = [
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { user, isAuthenticated } = useAuthStore();
 
   return (
     <header
@@ -53,12 +56,30 @@ export function Header() {
         {/* Desktop CTA & Theme Toggle */}
         <div className="hidden items-center gap-3 lg:flex">
           <ThemeToggle />
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/auth/login">Войти</Link>
-          </Button>
-          <Button size="sm" asChild>
-            <Link href="/auth/register">Начать бесплатно</Link>
-          </Button>
+          {isAuthenticated && user ? (
+            <Button size="sm" variant="outline" asChild className="gap-2 cursor-pointer">
+              <Link href="/dashboard">
+                <Avatar className="h-5 w-5">
+                  {user.avatarUrl ? (
+                    <AvatarImage src={user.avatarUrl} alt={user.name} className="object-cover" />
+                  ) : null}
+                  <AvatarFallback className="text-[10px] bg-primary/10 text-primary font-bold">
+                    {user.name.slice(0, 1).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span>Дашборд</span>
+              </Link>
+            </Button>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/auth/login">Войти</Link>
+              </Button>
+              <Button size="sm" asChild>
+                <Link href="/auth/register">Начать бесплатно</Link>
+              </Button>
+            </>
+          )}
         </div>
 
         {/* Mobile/Tablet menu controls */}
@@ -122,16 +143,34 @@ export function Header() {
                 ))}
 
                 <div className="mt-6 border-t border-border pt-5 space-y-2.5">
-                  <Button variant="outline" className="w-full justify-center" asChild>
-                    <Link href="/auth/login" onClick={() => setMobileOpen(false)}>
-                      Войти
-                    </Link>
-                  </Button>
-                  <Button className="w-full justify-center" asChild>
-                    <Link href="/auth/register" onClick={() => setMobileOpen(false)}>
-                      Начать бесплатно
-                    </Link>
-                  </Button>
+                  {isAuthenticated && user ? (
+                    <Button className="w-full justify-center gap-2" asChild>
+                      <Link href="/dashboard" onClick={() => setMobileOpen(false)}>
+                        <Avatar className="h-5 w-5">
+                          {user.avatarUrl ? (
+                            <AvatarImage src={user.avatarUrl} alt={user.name} className="object-cover" />
+                          ) : null}
+                          <AvatarFallback className="text-[10px] bg-primary/10 text-primary font-bold">
+                            {user.name.slice(0, 1).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>Перейти в Дашборд</span>
+                      </Link>
+                    </Button>
+                  ) : (
+                    <>
+                      <Button variant="outline" className="w-full justify-center" asChild>
+                        <Link href="/auth/login" onClick={() => setMobileOpen(false)}>
+                          Войти
+                        </Link>
+                      </Button>
+                      <Button className="w-full justify-center" asChild>
+                        <Link href="/auth/register" onClick={() => setMobileOpen(false)}>
+                          Начать бесплатно
+                        </Link>
+                      </Button>
+                    </>
+                  )}
                 </div>
               </nav>
             </motion.div>

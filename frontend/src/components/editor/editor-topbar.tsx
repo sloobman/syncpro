@@ -37,12 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-
-const mockOnlineUsers = [
-  { id: "u1", name: "Алиса", avatarUrl: null, color: "bg-blue-500" },
-  { id: "u2", name: "Боб", avatarUrl: null, color: "bg-emerald-500" },
-  { id: "u3", name: "Вы", avatarUrl: null, color: "bg-amber-500" },
-];
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 export interface EditorTopbarProps {
   title?: string;
@@ -80,6 +75,18 @@ export function EditorTopbar({
   const [isFavorite, setIsFavorite] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { user } = useAuthStore();
+
+  const onlineUsers = [
+    { id: "u1", name: "Алиса", avatarUrl: null, color: "bg-blue-500" },
+    { id: "u2", name: "Боб", avatarUrl: null, color: "bg-emerald-500" },
+    {
+      id: "u3",
+      name: user?.name ? `${user.name} (Вы)` : "Вы",
+      avatarUrl: user?.avatarUrl || null,
+      color: "bg-amber-500",
+    },
+  ];
 
   const handleCopyShareLink = () => {
     if (typeof window !== "undefined") {
@@ -190,7 +197,7 @@ export function EditorTopbar({
             </Button>
           )}
 
-          <PresenceAvatars users={mockOnlineUsers} />
+          <PresenceAvatars users={onlineUsers} />
 
           <ThemeToggle />
 

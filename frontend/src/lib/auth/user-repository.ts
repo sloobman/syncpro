@@ -102,14 +102,26 @@ export class UserRepository {
     id: string,
     data: { name?: string; avatarUrl?: string | null }
   ): Promise<SafeUser | null> {
+    const updates: string[] = ["updated_at = NOW()"];
+    const values: (string | null)[] = [id];
+    let paramIdx = 2;
+
+    if (data.name !== undefined) {
+      updates.push(`name = $${paramIdx++}`);
+      values.push(data.name.trim() || null);
+    }
+
+    if (data.avatarUrl !== undefined) {
+      updates.push(`avatar_url = $${paramIdx++}`);
+      values.push(data.avatarUrl || null);
+    }
+
     const res = await query<UserRow>(
       `UPDATE users
-       SET name = COALESCE($2, name),
-           avatar_url = COALESCE($3, avatar_url),
-           updated_at = NOW()
+       SET ${updates.join(", ")}
        WHERE id = $1
        RETURNING id, email, name, password_hash, avatar_url, role, created_at, updated_at`,
-      [id, data.name?.trim() || null, data.avatarUrl || null]
+      values
     );
     if (!res.rows[0]) return null;
     return rowToSafeUser(res.rows[0]);
