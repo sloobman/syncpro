@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, FileText, BookOpen, Presentation, Code2 } from "lucide-react";
+import { Plus, FileText, Check, LayoutTemplate } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -15,24 +15,34 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 const templates = [
-  { id: "blank", name: "Пустой документ", icon: FileText, desc: "Чистый лист для свободного письма" },
-  { id: "article", name: "Статья / Гайд", icon: BookOpen, desc: "Структура заголовков и введение" },
-  { id: "meeting", name: "Meeting Notes", icon: Presentation, desc: "Цели, участники, action items" },
-  { id: "tech-spec", name: "Тех. Спецификация", icon: Code2, desc: "Архитектура, контракты и DoD" },
+  {
+    id: "blank",
+    title: "Пустой документ",
+    desc: "Чистый лист для свободной работы",
+    icon: FileText,
+  },
+  {
+    id: "spec",
+    title: "Техническая спецификация",
+    desc: "SRS шаблон: обзор, требования, архитектура",
+    icon: LayoutTemplate,
+  },
+  {
+    id: "meeting",
+    title: "Заметки встречи команды",
+    desc: "Повестка, тезисы обсуждения, action items",
+    icon: LayoutTemplate,
+  },
+  {
+    id: "rfc",
+    title: "Архитектурный RFC",
+    desc: "Предложение по дизайну и аналитика альтернатив",
+    icon: LayoutTemplate,
+  },
 ];
-
-function generateUuid(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
 
 export function CreateDocumentDialog({
   workspaceId,
@@ -42,27 +52,32 @@ export function CreateDocumentDialog({
   children?: React.ReactNode;
 }) {
   const router = useRouter();
+  const createDocument = useWorkspaceStore((state) => state.createDocument);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("blank");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
-    setLoading(true);
+    if (!title.trim() || loading) return;
 
-    const docId = generateUuid();
-    setTimeout(() => {
-      setLoading(false);
+    setLoading(true);
+    try {
+      const newDoc = await createDocument({
+        title,
+        workspaceId,
+        template: selectedTemplate,
+      });
+
       setOpen(false);
       setTitle("");
-      router.push(
-        workspaceId
-          ? `/doc/${docId}?workspace=${encodeURIComponent(workspaceId)}`
-          : `/doc/${docId}`
-      );
-    }, 400);
+      router.push(`/doc/${newDoc.id}`);
+    } catch (err) {
+      console.error("Failed to create document:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -98,39 +113,31 @@ export function CreateDocumentDialog({
 
             <div className="space-y-2.5">
               <Label>Выберите шаблон</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {templates.map((tpl) => {
                   const Icon = tpl.icon;
                   const active = selectedTemplate === tpl.id;
                   return (
-                    <button
+                    <div
                       key={tpl.id}
-                      type="button"
                       onClick={() => setSelectedTemplate(tpl.id)}
-                      className={`p-3 rounded-lg border text-left transition-all flex items-start gap-3 ${
+                      className={`relative p-3.5 rounded-xl border text-left cursor-pointer transition-all ${
                         active
                           ? "border-primary bg-primary/5 shadow-sm"
                           : "border-border hover:bg-muted/50"
                       }`}
                     >
-                      <div
-                        className={`p-2 rounded-md ${
-                          active
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        <Icon className="h-4 w-4" />
+                      <div className="flex items-start justify-between mb-1.5">
+                        <Icon className="h-4 w-4 text-primary" />
+                        {active && <Check className="h-4 w-4 text-primary" />}
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-foreground">
-                          {tpl.name}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">
-                          {tpl.desc}
-                        </p>
-                      </div>
-                    </button>
+                      <p className="text-xs font-semibold text-foreground">
+                        {tpl.title}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+                        {tpl.desc}
+                      </p>
+                    </div>
                   );
                 })}
               </div>

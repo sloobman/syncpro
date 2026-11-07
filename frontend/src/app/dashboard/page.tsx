@@ -4,34 +4,11 @@ import { Plus } from "lucide-react";
 import { WorkspaceCard } from "@/components/dashboard/workspace-card";
 import { RecentDocuments } from "@/components/dashboard/recent-documents";
 import { CreateWorkspaceDialog } from "@/components/dashboard/create-workspace-dialog";
-import { Workspace } from "@/types";
-
-const mockWorkspaces: Workspace[] = [
-  {
-    id: "ws_1",
-    name: "Мой проект",
-    slug: "my-project",
-    description: "Основное рабочее пространство для документации",
-    iconEmoji: "🚀",
-    memberCount: 3,
-    documentCount: 5,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date(Date.now() - 7200000).toISOString(),
-  },
-  {
-    id: "ws_2",
-    name: "Команда разработки",
-    slug: "dev-team",
-    description: "Инженерная база знаний и архитектурные решения",
-    iconEmoji: "⚡",
-    memberCount: 12,
-    documentCount: 24,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-];
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export default function DashboardPage() {
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+
   return (
     <div className="space-y-8 pb-10">
       {/* Top Banner / Greeting */}
@@ -49,7 +26,7 @@ export default function DashboardPage() {
 
       {/* Workspaces Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {mockWorkspaces.map((ws) => (
+        {workspaces.map((ws) => (
           <WorkspaceCard key={ws.id} workspace={ws} />
         ))}
 

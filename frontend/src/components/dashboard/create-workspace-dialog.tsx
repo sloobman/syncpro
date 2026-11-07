@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import {
   Dialog,
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 const emojiOptions = ["📁", "🚀", "⚡", "💡", "📝", "🔬", "🎨", "💼"];
 
@@ -23,23 +25,35 @@ export function CreateWorkspaceDialog({
 }: {
   children?: React.ReactNode;
 }) {
+  const router = useRouter();
+  const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [selectedEmoji, setSelectedEmoji] = useState("📁");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    setLoading(true);
+    if (!name.trim() || loading) return;
 
-    setTimeout(() => {
-      setLoading(false);
+    setLoading(true);
+    try {
+      const newWs = await createWorkspace({
+        name,
+        description,
+        iconEmoji: selectedEmoji,
+      });
+
       setOpen(false);
       setName("");
       setDescription("");
-    }, 600);
+      router.push(`/dashboard/workspace/${newWs.id}`);
+    } catch (err) {
+      console.error("Failed to create workspace:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -100,7 +114,7 @@ export function CreateWorkspaceDialog({
               <Label htmlFor="ws-desc">Описание (опционально)</Label>
               <Textarea
                 id="ws-desc"
-                placeholder="Опишите назначение этого рабочего пространства"
+                placeholder="Для каких целей используется это пространство..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
@@ -117,7 +131,7 @@ export function CreateWorkspaceDialog({
               Отмена
             </Button>
             <Button type="submit" disabled={loading || !name.trim()}>
-              {loading ? "Создание..." : "Создать пространство"}
+              {loading ? "Создание..." : "Создать"}
             </Button>
           </DialogFooter>
         </form>
