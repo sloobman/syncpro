@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { EditorTopbar, type CollaboratorInfo } from "@/components/editor/editor-topbar";
 import { EditorToolbar } from "@/components/editor/editor-toolbar";
 import { EditorSidebar, type HeadingItem } from "@/components/editor/editor-sidebar";
 import { EditorStatusbar } from "@/components/editor/editor-statusbar";
 import { TimeTravelSlider } from "@/components/editor/time-travel-slider";
 import { MergeBranchDialog } from "@/components/editor/merge-branch-dialog";
+import { CommitDialog } from "@/components/editor/commit-dialog";
 import { DiffViewer } from "@/components/editor/diff-viewer";
 import { BlockEditorItem } from "@/components/editor/block-editor-item";
 import { CRDTDocument } from "@/lib/crdt/crdt-doc";
@@ -137,6 +139,7 @@ function serializeCRDTToMarkdown(doc: CRDTDocument): string {
 }
 
 export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
+  const router = useRouter();
   const { canvasWidth } = useUIStore();
   const { user } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -145,9 +148,13 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const [timeTravelIndex, setTimeTravelIndex] = useState<number | null>(null);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
   const [isDiffOpen, setIsDiffOpen] = useState(false);
+  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [branch, setBranch] = useState("main");
   const [branches, setBranches] = useState<string[]>(["main", "dev"]);
   const [onlineUsers, setOnlineUsers] = useState<CollaboratorInfo[]>([]);
+
+  // Per-branch drafts map so switching branches switches document content
+  const branchContentsRef = useRef<Record<string, string>>({});
 
   const clientIdRef = useRef<string>("");
   const myColorRef = useRef<string>("bg-primary");
@@ -207,6 +214,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     docRef.current = doc;
 
     const initialContent = savedContent || (documentId === "doc_1" ? store.getDocumentContent("doc_1") : `# ${docTitle}\n\nНачните редактирование документа...`);
+    branchContentsRef.current["main"] = initialContent;
     initCRDTFromMarkdown(doc, initialContent);
 
     doc.onUpdate(() => {
@@ -230,6 +238,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           setUserRole(data.userRole);
         }
         if (data.content) {
+          branchContentsRef.current["main"] = data.content;
           const freshDoc = new CRDTDocument(1);
           docRef.current = freshDoc;
           initCRDTFromMarkdown(freshDoc, data.content);
@@ -249,6 +258,13 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           const uniqueBranches = Array.from(new Set(data.commits.map((c: MerkleCommit) => c.branch || "main")));
           if (!uniqueBranches.includes("main")) uniqueBranches.unshift("main");
           setBranches(uniqueBranches as string[]);
+
+          // Populate branch contents from commit snapshots
+          for (const c of data.commits) {
+            if (c.branch && c.content && !branchContentsRef.current[c.branch]) {
+              branchContentsRef.current[c.branch] = c.content;
+            }
+          }
         }
       })
       .catch(() => {});
@@ -315,7 +331,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     };
   }, [documentId, user?.id, user?.name, user?.avatarUrl, activeBlockId]);
 
-  // Debounced auto-save function
+  // Debounced auto-save function (DOES NOT create Merkle DAG commit!)
   const triggerAutoSave = useCallback(
     (newTitle?: string) => {
       const doc = docRef.current;
@@ -326,67 +342,43 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         clearTimeout(saveTimeoutRef.current);
       }
 
-      saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = setTimeout(async () => {
         const markdown = serializeCRDTToMarkdown(doc);
         const currentTitle = newTitle ?? title;
+        branchContentsRef.current[branch] = markdown;
         useWorkspaceStore.getState().saveDocumentContent(documentId, markdown, currentTitle);
+
+        // Debounced patch to server to save working draft
+        try {
+          await fetch(`/api/documents/${documentId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ content: markdown, title: currentTitle }),
+          });
+        } catch {
+          // Local storage preserves offline changes
+        }
+
         setSaveStatus("saved");
-      }, 400);
+      }, 500);
     },
-    [canEdit, documentId, title]
+    [branch, canEdit, documentId, title]
   );
 
-  // Manual save handler (Save button / Ctrl+S)
-  const handleManualSave = useCallback(async () => {
-    const doc = docRef.current;
-    if (!doc || !canEdit) return;
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    setSaveStatus("saving");
-
-    const markdown = serializeCRDTToMarkdown(doc);
-    useWorkspaceStore.getState().saveDocumentContent(documentId, markdown, title);
-
-    // Create real Merkle commit on server
-    try {
-      const res = await fetch(`/api/documents/${documentId}/commits`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          branch,
-          parents: currentCommitId ? [currentCommitId] : [],
-          stateVector: { crdt_clock: 1 },
-          message: `Сохранение документа: ${title}`,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.commit) {
-          setCommits((prev) => [...prev, data.commit]);
-          setCurrentCommitId(data.commit.id);
-        }
-      }
-    } catch {
-      // Offline fallback
-    }
-
-    setSaveStatus("saved");
-  }, [branch, canEdit, currentCommitId, documentId, title]);
-
-  // Keyboard shortcut Ctrl+S / Cmd+S
+  // Keyboard shortcut Ctrl+S / Cmd+S -> Open meaningful Commit Dialog
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
-        handleManualSave();
+        if (canEdit) {
+          setIsCommitDialogOpen(true);
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleManualSave]);
+  }, [canEdit]);
 
   // Handle title changes
   const handleTitleChange = useCallback(
@@ -468,7 +460,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           : type === "table"
           ? "| Параметр | Значение |\n|---|---|\n| Статус | В работе |\n| Версия | 1.0 |"
           : type === "image"
-          ? "![Схема](https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1000&q=80)"
+          ? ""
           : "");
 
       const block = doc.insertBlockAfter(afterBlockId ?? null, type, defaultText);
@@ -504,7 +496,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     [canEdit, refreshBlocks, triggerAutoSave]
   );
 
-  // Toolbar action execution
+  // Real WYSIWYG Toolbar action execution
   const handleToolbarAction = useCallback(
     (action: string) => {
       const doc = docRef.current;
@@ -517,9 +509,30 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
 
       switch (action) {
         case "undo":
+          document.execCommand("undo");
           break;
         case "redo":
+          document.execCommand("redo");
           break;
+        case "bold":
+          document.execCommand("bold");
+          break;
+        case "italic":
+          document.execCommand("italic");
+          break;
+        case "underline":
+          document.execCommand("underline");
+          break;
+        case "strike":
+          document.execCommand("strikeThrough");
+          break;
+        case "link": {
+          const url = prompt("Введите адрес ссылки (URL):", "https://");
+          if (url && url.trim()) {
+            document.execCommand("createLink", false, url.trim());
+          }
+          break;
+        }
         case "h1":
           if (targetBlock) {
             handleChangeBlockType(targetBlock.id, "heading1");
@@ -539,30 +552,6 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             handleChangeBlockType(targetBlock.id, "heading3");
           } else {
             handleAddBlock("heading3");
-          }
-          break;
-        case "bold":
-          if (targetBlock) {
-            const current = doc.getBlockText(targetBlock.id);
-            handleTextChange(targetBlock.id, current ? `${current} **жирный текст**` : "**жирный текст**");
-          }
-          break;
-        case "italic":
-          if (targetBlock) {
-            const current = doc.getBlockText(targetBlock.id);
-            handleTextChange(targetBlock.id, current ? `${current} *курсив*` : "*курсив*");
-          }
-          break;
-        case "underline":
-          if (targetBlock) {
-            const current = doc.getBlockText(targetBlock.id);
-            handleTextChange(targetBlock.id, current ? `${current} <u>подчёркнутый текст</u>` : "<u>подчёркнутый текст</u>");
-          }
-          break;
-        case "strike":
-          if (targetBlock) {
-            const current = doc.getBlockText(targetBlock.id);
-            handleTextChange(targetBlock.id, current ? `${current} ~~зачёркнутый текст~~` : "~~зачёркнутый текст~~");
           }
           break;
         case "bullet-list":
@@ -606,16 +595,189 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         case "image":
           handleAddBlock("image", undefined, targetBlock?.id);
           break;
-        case "link":
-          if (targetBlock) {
-            const current = doc.getBlockText(targetBlock.id);
-            handleTextChange(targetBlock.id, current ? `${current} [Ссылка](https://syncpro.dev)` : "[Ссылка](https://syncpro.dev)");
-          }
-          break;
       }
     },
-    [activeBlockId, canEdit, handleAddBlock, handleChangeBlockType, handleTextChange]
+    [activeBlockId, canEdit, handleAddBlock, handleChangeBlockType]
   );
+
+  // Perform meaningful Merkle Commit
+  const handlePerformCommit = useCallback(
+    async (params: { message: string; description?: string; branch: string }) => {
+      const doc = docRef.current;
+      if (!doc || !canEdit) return;
+
+      const markdown = serializeCRDTToMarkdown(doc);
+      branchContentsRef.current[params.branch] = markdown;
+      useWorkspaceStore.getState().saveDocumentContent(documentId, markdown, title);
+
+      const fullMessage = params.description
+        ? `${params.message}\n\n${params.description}`
+        : params.message;
+
+      const res = await fetch(`/api/documents/${documentId}/commits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          branch: params.branch,
+          parents: currentCommitId ? [currentCommitId] : [],
+          stateVector: { crdt_clock: 1 },
+          message: fullMessage,
+          content: markdown,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Не удалось создать коммит");
+      }
+
+      const data = await res.json();
+      if (data.commit) {
+        setCommits((prev) => [...prev, data.commit]);
+        setCurrentCommitId(data.commit.id);
+        if (params.branch !== branch) {
+          setBranch(params.branch);
+        }
+        if (!branches.includes(params.branch)) {
+          setBranches((prev) => [...prev, params.branch]);
+        }
+      }
+
+      setSaveStatus("saved");
+    },
+    [branch, branches, canEdit, currentCommitId, documentId, title]
+  );
+
+  // Branch Switching: Switches document content and active commit
+  const handleSelectBranch = useCallback(
+    (targetBranch: string) => {
+      if (targetBranch === branch) return;
+
+      const doc = docRef.current;
+      if (doc) {
+        // 1. Preserve current branch's draft
+        const currentMd = serializeCRDTToMarkdown(doc);
+        branchContentsRef.current[branch] = currentMd;
+      }
+
+      // 2. Determine target branch's content
+      let targetContent = branchContentsRef.current[targetBranch];
+
+      // If not yet in memory draft, find latest commit on targetBranch
+      if (!targetContent) {
+        const branchCommits = commits.filter((c) => c.branch === targetBranch);
+        if (branchCommits.length > 0) {
+          const headCommit = branchCommits[branchCommits.length - 1];
+          if (headCommit.content) {
+            targetContent = headCommit.content;
+          }
+          setCurrentCommitId(headCommit.id);
+        }
+      }
+
+      if (!targetContent) {
+        targetContent = branchContentsRef.current["main"] || `# ${title}\n\nВетка ${targetBranch}`;
+      }
+
+      branchContentsRef.current[targetBranch] = targetContent;
+      setBranch(targetBranch);
+
+      // 3. Load target content into CRDT
+      const freshDoc = new CRDTDocument(1);
+      docRef.current = freshDoc;
+      initCRDTFromMarkdown(freshDoc, targetContent);
+      freshDoc.onUpdate(refreshBlocks);
+      refreshBlocks();
+    },
+    [branch, commits, refreshBlocks, title]
+  );
+
+  // Branch creation
+  const handleCreateBranch = useCallback(
+    (newBranch: string) => {
+      const cleanBranch = newBranch.trim();
+      if (!cleanBranch) return;
+
+      if (!branches.includes(cleanBranch)) {
+        setBranches((prev) => [...prev, cleanBranch]);
+      }
+
+      const doc = docRef.current;
+      const currentMd = doc ? serializeCRDTToMarkdown(doc) : "";
+      branchContentsRef.current[cleanBranch] = currentMd;
+
+      handleSelectBranch(cleanBranch);
+    },
+    [branches, handleSelectBranch]
+  );
+
+  // Real 3-Way Merge handler
+  const handleConfirmMerge = async (source: string, target: string) => {
+    try {
+      const res = await fetch(`/api/documents/${documentId}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sourceBranch: source,
+          targetBranch: target,
+          targetCommitId: currentCommitId,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.mergeCommit) {
+          setCommits((prev) => [...prev, data.mergeCommit]);
+          setCurrentCommitId(data.mergeCommit.id);
+          if (data.mergedPlainText) {
+            branchContentsRef.current[target] = data.mergedPlainText;
+            handleSelectBranch(target);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[3-Way Merge error]:", err);
+    }
+  };
+
+  // Import local Markdown or text file
+  const handleImportMarkdown = useCallback(
+    (content: string, filename?: string) => {
+      if (!canEdit) return;
+
+      const freshDoc = new CRDTDocument(1);
+      docRef.current = freshDoc;
+      initCRDTFromMarkdown(freshDoc, content);
+      freshDoc.onUpdate(refreshBlocks);
+      refreshBlocks();
+
+      branchContentsRef.current[branch] = content;
+
+      if (filename && (title === "Новый документ" || !title.trim())) {
+        handleTitleChange(filename);
+      } else {
+        triggerAutoSave();
+      }
+    },
+    [branch, canEdit, handleTitleChange, refreshBlocks, title, triggerAutoSave]
+  );
+
+  // Delete current document
+  const handleDeleteDocument = useCallback(async () => {
+    try {
+      await fetch(`/api/documents/${documentId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      useWorkspaceStore.getState().deleteDocument(documentId);
+      router.push("/dashboard");
+    } catch (err) {
+      console.error("Failed to delete document:", err);
+      router.push("/dashboard");
+    }
+  }, [documentId, router]);
 
   // Export handlers
   const handleExportMarkdown = useCallback(() => {
@@ -671,45 +833,6 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     }
   };
 
-  // Branch management
-  const handleSelectBranch = (b: string) => {
-    setBranch(b);
-  };
-
-  const handleCreateBranch = (b: string) => {
-    if (!branches.includes(b)) {
-      setBranches((prev) => [...prev, b]);
-    }
-    setBranch(b);
-  };
-
-  // Real 3-Way Merge handler
-  const handleConfirmMerge = async (source: string, target: string) => {
-    try {
-      const res = await fetch(`/api/documents/${documentId}/merge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          sourceBranch: source,
-          targetBranch: target,
-          targetCommitId: currentCommitId,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.mergeCommit) {
-          setCommits((prev) => [...prev, data.mergeCommit]);
-          setCurrentCommitId(data.mergeCommit.id);
-          setBranch(target);
-        }
-      }
-    } catch (err) {
-      console.warn("[3-Way Merge error]:", err);
-    }
-  };
-
   const currentDiffBase = useMemo(() => {
     return "Платформа SyncPro совмещает математическое ядро Conflict-free Replicated Data Types (CRDT) на базе алгоритмов YATA и Fugue с графом контроля версий Merkle-DAG.";
   }, []);
@@ -746,10 +869,12 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         onCreateBranch={handleCreateBranch}
         onExportMarkdown={handleExportMarkdown}
         onExportPdf={handleExportPdf}
+        onImportMarkdown={handleImportMarkdown}
+        onDeleteDocument={handleDeleteDocument}
         onToggleHistory={() => setSidebarOpen(true)}
         onToggleDiff={() => setIsDiffOpen(!isDiffOpen)}
         saveStatus={saveStatus}
-        onSave={canEdit ? handleManualSave : undefined}
+        onSave={canEdit ? () => setIsCommitDialogOpen(true) : undefined}
         onlineUsers={onlineUsers}
       />
 
@@ -806,6 +931,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
                     onInsertAfter={(type) => handleAddBlock(type, undefined, block.id)}
                     onEnter={() => handleAddBlock("paragraph", undefined, block.id)}
                     onBackspaceEmpty={() => handleDeleteBlock(block.id)}
+                    documentId={documentId}
                   />
                 </div>
               );
@@ -913,10 +1039,28 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
               onIndexChange={(idx) => {
                 setTimeTravelIndex(idx);
                 if (commits[idx]) {
-                  setCurrentCommitId(commits[idx].id);
+                  const targetCommit = commits[idx];
+                  setCurrentCommitId(targetCommit.id);
+                  if (targetCommit.content) {
+                    const freshDoc = new CRDTDocument(1);
+                    docRef.current = freshDoc;
+                    initCRDTFromMarkdown(freshDoc, targetCommit.content);
+                    freshDoc.onUpdate(refreshBlocks);
+                    refreshBlocks();
+                  }
                 }
               }}
-              onExitTimeTravel={() => setTimeTravelIndex(null)}
+              onExitTimeTravel={() => {
+                setTimeTravelIndex(null);
+                const currentContent = branchContentsRef.current[branch] || "";
+                if (currentContent && docRef.current) {
+                  const freshDoc = new CRDTDocument(1);
+                  docRef.current = freshDoc;
+                  initCRDTFromMarkdown(freshDoc, currentContent);
+                  freshDoc.onUpdate(refreshBlocks);
+                  refreshBlocks();
+                }
+              }}
               onForkBranch={(commitId) => {
                 const forkName = `fork-${commitId.slice(0, 6)}`;
                 handleCreateBranch(forkName);
@@ -941,6 +1085,16 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         branches={branches}
         currentBranch={branch}
         onConfirmMerge={handleConfirmMerge}
+      />
+
+      {/* Meaningful Merkle Commit Dialog */}
+      <CommitDialog
+        open={isCommitDialogOpen}
+        onOpenChange={setIsCommitDialogOpen}
+        currentBranch={branch}
+        branches={branches}
+        onCommit={handlePerformCommit}
+        stats={stats}
       />
     </div>
   );

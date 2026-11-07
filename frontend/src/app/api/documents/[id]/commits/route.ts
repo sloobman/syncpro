@@ -25,6 +25,7 @@ function getFallbackCommits(documentId: string): MerkleCommit[] {
       },
       timestamp: 1714000000000,
       branch: "main",
+      content: null,
     },
   ];
 }
@@ -88,14 +89,14 @@ export async function POST(
   }
 
   const body = await request.json();
-  const { parents, stateVector, message, branch, deltaBytesBase64, deltaSha256 } = body;
+  const { parents, stateVector, message, branch, deltaBytesBase64, deltaSha256, content } = body;
 
   const commitPayload = {
     documentId: id,
     parents: Array.isArray(parents) ? parents : [],
     deltaSha256: typeof deltaSha256 === "string" ? deltaSha256 : "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     stateVector: stateVector && typeof stateVector === "object" ? stateVector : {},
-    message: typeof message === "string" ? message : "Automated micro-commit",
+    message: typeof message === "string" ? message : "Автоматический микро-коммит",
     author: {
       userId: user.id,
       name: user.name,
@@ -123,6 +124,7 @@ export async function POST(
     id: commitId,
     crdtDeltaStoragePath: deltaStoragePath,
     snapshotStoragePath: null,
+    content: typeof content === "string" ? content : null,
   };
 
   // Persist DAG node into PostgreSQL
@@ -139,8 +141,8 @@ export async function POST(
       await NotificationRepository.notifyWorkspaceMembers({
         workspaceId: docData.document.workspaceId,
         excludeUserId: user.id,
-        title: `Новые правки в «${docData.document.title || "документе"}»`,
-        description: `${user.name}: «${commitPayload.message}»`,
+        title: `Новый коммит в «${docData.document.title || "документе"}»`,
+        description: `${user.name}: «${commitPayload.message}» (ветка: ${commitPayload.branch})`,
         type: "commit",
         link: `/doc/${id}`,
       });
@@ -149,12 +151,8 @@ export async function POST(
     console.warn("[Commits API notification notice]:", notifErr);
   }
 
-  return NextResponse.json(
-    {
-      success: true,
-      commit: newCommit,
-      persisted: true,
-    },
-    { status: 201 }
-  );
+  return NextResponse.json({
+    success: true,
+    commit: newCommit,
+  });
 }

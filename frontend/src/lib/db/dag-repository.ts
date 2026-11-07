@@ -28,6 +28,7 @@ export interface DbCommitRow {
   created_at: string;
   parents: string[];
   branch: string;
+  content?: string | null;
 }
 
 export function toValidUUID(id: string): string {
@@ -54,9 +55,24 @@ export class MerkleDAGRepository {
   }
 
   /**
+   * Ensures table columns exist for branch and content tracking.
+   */
+  static async ensureSchema(): Promise<void> {
+    try {
+      await query(`
+        ALTER TABLE commits ADD COLUMN IF NOT EXISTS branch VARCHAR(64) DEFAULT 'main';
+        ALTER TABLE commits ADD COLUMN IF NOT EXISTS content TEXT;
+      `);
+    } catch {
+      // Ignore if columns already exist or concurrent migration
+    }
+  }
+
+  /**
    * Loads all commits for a given document, including their DAG parent links.
    */
   static async getCommitsByDocument(documentId: string): Promise<MerkleCommit[]> {
+    await this.ensureSchema();
     const validId = toValidUUID(documentId);
     const sql = `
       SELECT 
@@ -67,6 +83,7 @@ export class MerkleDAGRepository {
         c.crdt_delta_storage_path,
         c.snapshot_storage_path,
         c.created_at,
+        c.content,
         u.name as author_name,
         u.avatar_url as author_avatar,
         COALESCE(
@@ -78,6 +95,7 @@ export class MerkleDAGRepository {
           ARRAY[]::text[]
         ) as parents,
         COALESCE(
+          c.branch,
           (
             SELECT b.name
             FROM branches b
@@ -101,6 +119,7 @@ export class MerkleDAGRepository {
       deltaSha256: row.id.trim(),
       crdtDeltaStoragePath: row.crdt_delta_storage_path,
       snapshotStoragePath: row.snapshot_storage_path,
+      content: row.content || null,
       stateVector: {},
       message: row.message,
       author: {
@@ -117,6 +136,7 @@ export class MerkleDAGRepository {
    * Saves a new Merkle Commit and links its DAG parent nodes atomically.
    */
   static async saveCommit(commit: MerkleCommit): Promise<void> {
+    await this.ensureSchema();
     const validDocId = toValidUUID(commit.documentId);
     let validAuthorId = "00000000-0000-0000-0000-000000000000";
     if (commit.author?.userId) {
@@ -145,7 +165,7 @@ export class MerkleDAGRepository {
         [validDocId]
       );
 
-      // 3. Insert commit
+      // 3. Insert commit with branch and content snapshot
       await query(
         `INSERT INTO commits (
            id,
@@ -154,11 +174,15 @@ export class MerkleDAGRepository {
            message,
            crdt_delta_storage_path,
            snapshot_storage_path,
-           created_at
+           created_at,
+           branch,
+           content
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO UPDATE SET
-           snapshot_storage_path = COALESCE(EXCLUDED.snapshot_storage_path, commits.snapshot_storage_path)`,
+           snapshot_storage_path = COALESCE(EXCLUDED.snapshot_storage_path, commits.snapshot_storage_path),
+           content = COALESCE(EXCLUDED.content, commits.content),
+           branch = COALESCE(EXCLUDED.branch, commits.branch)`,
         [
           commit.id,
           validDocId,
@@ -167,6 +191,8 @@ export class MerkleDAGRepository {
           commit.crdtDeltaStoragePath,
           commit.snapshotStoragePath || null,
           new Date(commit.timestamp),
+          commit.branch || "main",
+          commit.content || null,
         ]
       );
 

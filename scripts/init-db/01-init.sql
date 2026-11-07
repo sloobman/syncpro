@@ -97,6 +97,8 @@ CREATE TABLE IF NOT EXISTS commits (
     message TEXT NOT NULL,
     crdt_delta_storage_path TEXT NOT NULL,
     snapshot_storage_path TEXT,
+    branch VARCHAR(64) NOT NULL DEFAULT 'main',
+    content TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -126,6 +128,19 @@ CREATE TABLE IF NOT EXISTS document_comments (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_document_comments_doc ON document_comments(document_id, created_at ASC);
+
+-- Document Files & Image Uploads Table (Stored directly in PostgreSQL)
+CREATE TABLE IF NOT EXISTS document_files (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID,
+    uploader_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    filename VARCHAR(255) NOT NULL,
+    mime_type VARCHAR(128) NOT NULL,
+    data BYTEA NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_document_files_doc ON document_files(document_id);
 
 -- 6. Notifications Table (Production-grade user activity & alerts)
 CREATE TABLE IF NOT EXISTS notifications (

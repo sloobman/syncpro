@@ -25,6 +25,9 @@ import {
   Underline,
   Strikethrough,
   Link as LinkIcon,
+  Upload,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +51,85 @@ interface BlockEditorItemProps {
   onInsertAfter: (type?: BlockType) => void;
   onEnter?: () => void;
   onBackspaceEmpty?: () => void;
+  documentId?: string;
+}
+
+// Convert Markdown to visual HTML for contentEditable
+export function markdownToHtml(md: string): string {
+  if (!md) return "";
+  const html = md
+    // Bold: **text** or <b>text</b>
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/<b>(.*?)<\/b>/g, "<strong>$1</strong>")
+    // Italic: *text* or <em>text</em>
+    .replace(/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/g, "<em>$1</em>")
+    .replace(/<em>(.*?)<\/em>/g, "<em>$1</em>")
+    // Underline: <u>text</u>
+    // Strikethrough: ~~text~~ or <del>
+    .replace(/~~(.*?)~~/g, "<del>$1</del>")
+    .replace(/<strike>(.*?)<\/strike>/g, "<del>$1</del>")
+    .replace(/<s>(.*?)<\/s>/g, "<del>$1</del>")
+    // Inline code: `code`
+    .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-muted text-primary font-mono text-[0.9em] border border-border/60">$1</code>')
+    // Link: [text](url)
+    .replace(/\[(.*?)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary underline hover:text-primary/80">$1</a>');
+
+  return html;
+}
+
+// Convert DOM back to standard Markdown
+export function htmlToMarkdown(html: string): string {
+  if (!html) return "";
+  if (typeof window === "undefined") return html;
+
+  const div = document.createElement("div");
+  div.innerHTML = html;
+
+  function walk(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent || "";
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return "";
+    }
+    const el = node as HTMLElement;
+    const tag = el.tagName.toLowerCase();
+
+    let inner = "";
+    for (let i = 0; i < el.childNodes.length; i++) {
+      inner += walk(el.childNodes[i]);
+    }
+
+    switch (tag) {
+      case "strong":
+      case "b":
+        return inner.trim() ? `**${inner}**` : "";
+      case "em":
+      case "i":
+        return inner.trim() ? `*${inner}*` : "";
+      case "u":
+        return inner.trim() ? `<u>${inner}</u>` : "";
+      case "del":
+      case "s":
+      case "strike":
+        return inner.trim() ? `~~${inner}~~` : "";
+      case "code":
+        return inner.trim() ? `\`${inner}\`` : "";
+      case "a": {
+        const href = el.getAttribute("href") || "#";
+        return `[${inner || href}](${href})`;
+      }
+      case "br":
+        return "\n";
+      case "div":
+      case "p":
+        return inner ? `\n${inner}` : "\n";
+      default:
+        return inner;
+    }
+  }
+
+  return walk(div).replace(/^\n+|\n+$/g, "");
 }
 
 // Table Markdown parser & serializer
@@ -86,7 +168,6 @@ function parseMarkdownTable(text: string): { headers: string[]; rows: string[][]
     };
   }
 
-  // Ensure all rows match header length
   const normalizedRows = rows.map((row) => {
     const r = [...row];
     while (r.length < headers.length) r.push("");
@@ -146,10 +227,17 @@ export function BlockEditorItem({
   onInsertAfter,
   onEnter,
   onBackspaceEmpty,
+  documentId,
 }: BlockEditorItemProps) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const lastMarkdownRef = useRef<string>(text);
+
   const [copiedCode, setCopiedCode] = useState(false);
   const [isEditingImage, setIsEditingImage] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const parsedImage = useMemo(() => parseMarkdownImage(text), [text]);
   const [imageUrlInput, setImageUrlInput] = useState("");
@@ -159,93 +247,108 @@ export function BlockEditorItem({
     setImageUrlInput(parsedImage.url);
     setImageCaptionInput(parsedImage.caption);
     setIsEditingImage(true);
+    setUploadError(null);
   };
 
-  // Auto-resize textarea height
+  // Synchronize contentEditable DOM with external text prop
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    if (contentRef.current && text !== lastMarkdownRef.current) {
+      if (document.activeElement !== contentRef.current) {
+        contentRef.current.innerHTML = markdownToHtml(text);
+        lastMarkdownRef.current = text;
+      }
     }
-  }, [text, isActive]);
+  }, [text]);
 
-  // Focus textarea when activated
+  // Set initial HTML once mounted
   useEffect(() => {
-    if (isActive && textareaRef.current && document.activeElement !== textareaRef.current) {
-      textareaRef.current.focus();
+    if (contentRef.current && !contentRef.current.innerHTML) {
+      contentRef.current.innerHTML = markdownToHtml(text);
+      lastMarkdownRef.current = text;
+    }
+  }, [text]);
+
+  // Focus contentEditable when activated
+  useEffect(() => {
+    if (isActive && contentRef.current && document.activeElement !== contentRef.current) {
+      contentRef.current.focus();
     }
   }, [isActive]);
 
-  // Wrap text selection with formatting markdown
-  const applyInlineFormat = useCallback(
-    (prefix: string, suffix: string = prefix, defaultPlaceholder = "текст") => {
-      const el = textareaRef.current;
-      if (!el) return;
+  // Input change in contentEditable div -> serialize to Markdown
+  const handleContentInput = useCallback(() => {
+    if (!contentRef.current) return;
+    const newHtml = contentRef.current.innerHTML;
+    const newMarkdown = htmlToMarkdown(newHtml);
+    lastMarkdownRef.current = newMarkdown;
+    onChangeText(newMarkdown);
+  }, [onChangeText]);
 
-      const start = el.selectionStart ?? 0;
-      const end = el.selectionEnd ?? 0;
-      const current = text;
-
-      if (start === end) {
-        // No selection: insert placeholder
-        const insertion = `${prefix}${defaultPlaceholder}${suffix}`;
-        const newText = current.slice(0, start) + insertion + current.slice(end);
-        onChangeText(newText);
-        setTimeout(() => {
-          if (textareaRef.current) {
-            textareaRef.current.focus();
-            textareaRef.current.setSelectionRange(
-              start + prefix.length,
-              start + prefix.length + defaultPlaceholder.length
-            );
-          }
-        }, 10);
-      } else {
-        const selected = current.slice(start, end);
-        // Check if already wrapped
-        if (
-          current.slice(start - prefix.length, start) === prefix &&
-          current.slice(end, end + suffix.length) === suffix
-        ) {
-          // Unwrap
-          const newText =
-            current.slice(0, start - prefix.length) +
-            selected +
-            current.slice(end + suffix.length);
-          onChangeText(newText);
-        } else {
-          // Wrap
-          const newText =
-            current.slice(0, start) +
-            `${prefix}${selected}${suffix}` +
-            current.slice(end);
-          onChangeText(newText);
-        }
+  // True WYSIWYG formatting execCommand
+  const applyVisualFormat = useCallback(
+    (command: string, value: string | undefined = undefined) => {
+      if (!canEdit) return;
+      if (contentRef.current) {
+        contentRef.current.focus();
       }
+      document.execCommand(command, false, value);
+      handleContentInput();
     },
-    [onChangeText, text]
+    [canEdit, handleContentInput]
   );
 
-  // Handle keyboard shortcuts inside block
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  // Apply inline code
+  const applyVisualCode = useCallback(() => {
+    if (!canEdit) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    const selectedText = range.toString() || "код";
+
+    const codeNode = document.createElement("code");
+    codeNode.className =
+      "px-1.5 py-0.5 rounded bg-muted text-primary font-mono text-[0.9em] border border-border/60";
+    codeNode.textContent = selectedText;
+
+    range.deleteContents();
+    range.insertNode(codeNode);
+
+    const newRange = document.createRange();
+    newRange.selectNode(codeNode);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+
+    handleContentInput();
+  }, [canEdit, handleContentInput]);
+
+  // Apply link
+  const applyVisualLink = useCallback(() => {
+    if (!canEdit) return;
+    const url = prompt("Введите адрес ссылки (URL):", "https://");
+    if (url && url.trim()) {
+      applyVisualFormat("createLink", url.trim());
+    }
+  }, [applyVisualFormat, canEdit]);
+
+  // Keyboard shortcut handlers in contentEditable
+  const handleEditableKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
       e.preventDefault();
-      applyInlineFormat("**", "**", "жирный текст");
+      applyVisualFormat("bold");
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "i") {
       e.preventDefault();
-      applyInlineFormat("*", "*", "курсив");
+      applyVisualFormat("italic");
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "u") {
       e.preventDefault();
-      applyInlineFormat("<u>", "</u>", "подчёркнутый текст");
+      applyVisualFormat("underline");
       return;
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
-      // Enter on standard blocks creates a new block below
       if (
         block.blockType === "paragraph" ||
         block.blockType.startsWith("heading") ||
@@ -259,10 +362,61 @@ export function BlockEditorItem({
       }
     }
 
-    if (e.key === "Backspace" && text === "") {
-      e.preventDefault();
-      onBackspaceEmpty?.();
+    if (e.key === "Backspace") {
+      const isContentEmpty =
+        !contentRef.current ||
+        contentRef.current.innerText.trim() === "" ||
+        contentRef.current.innerHTML === "<br>";
+      if (isContentEmpty && text === "") {
+        e.preventDefault();
+        onBackspaceEmpty?.();
+        return;
+      }
+    }
+  };
+
+  // Handle local image file upload to server PostgreSQL
+  const handleUploadImageFile = async (file: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setUploadError("Пожалуйста, выберите файл изображения (PNG, JPG, WebP, SVG, GIF)");
       return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError("Размер файла превышает 10 МБ");
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (documentId) {
+        formData.append("documentId", documentId);
+      }
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Ошибка загрузки файла на сервер");
+      }
+
+      const data = await res.json();
+      const finalUrl = data.url;
+      const caption = file.name.replace(/\.[^/.]+$/, "");
+      onChangeText(serializeMarkdownImage(caption, finalUrl));
+      setIsEditingImage(false);
+    } catch (err) {
+      setUploadError((err as Error).message);
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -297,7 +451,7 @@ export function BlockEditorItem({
     }
   };
 
-  // Quick switch dropdown
+  // Quick switch block type dropdown
   const blockTypeDropdown = canEdit && (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -368,22 +522,25 @@ export function BlockEditorItem({
     </DropdownMenu>
   );
 
-  // Floating inline formatting bar when active
+  // Floating WYSIWYG formatting toolbar when active
   const floatingFormattingBar = isActive && canEdit && (
-    <div className="absolute -top-9 left-6 z-20 flex items-center gap-0.5 bg-popover/95 text-popover-foreground border border-border/80 shadow-md backdrop-blur-md rounded-lg p-0.5 animate-in fade-in zoom-in-95 duration-100">
+    <div
+      className="absolute -top-9 left-6 z-20 flex items-center gap-0.5 bg-popover/95 text-popover-foreground border border-border/80 shadow-md backdrop-blur-md rounded-lg p-0.5 animate-in fade-in zoom-in-95 duration-100"
+      onMouseDown={(e) => e.preventDefault()}
+    >
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => applyInlineFormat("**", "**", "жирный")}
+        onClick={() => applyVisualFormat("bold")}
         className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
-        title="Жирный (Ctrl+B)"
+        title="Жирный шрифт (Ctrl+B)"
       >
         <Bold className="h-3 w-3" />
       </Button>
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => applyInlineFormat("*", "*", "курсив")}
+        onClick={() => applyVisualFormat("italic")}
         className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
         title="Курсив (Ctrl+I)"
       >
@@ -392,7 +549,7 @@ export function BlockEditorItem({
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => applyInlineFormat("<u>", "</u>", "подчёркнутый")}
+        onClick={() => applyVisualFormat("underline")}
         className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
         title="Подчёркнутый (Ctrl+U)"
       >
@@ -401,7 +558,7 @@ export function BlockEditorItem({
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => applyInlineFormat("~~", "~~", "зачёркнутый")}
+        onClick={() => applyVisualFormat("strikeThrough")}
         className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
         title="Зачёркнутый"
       >
@@ -410,7 +567,7 @@ export function BlockEditorItem({
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => applyInlineFormat("`", "`", "код")}
+        onClick={applyVisualCode}
         className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
         title="Код"
       >
@@ -419,9 +576,9 @@ export function BlockEditorItem({
       <Button
         variant="ghost"
         size="icon"
-        onClick={() => applyInlineFormat("[", "](https://syncpro.dev)", "Название ссылки")}
+        onClick={applyVisualLink}
         className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
-        title="Ссылка"
+        title="Вставить ссылку"
       >
         <LinkIcon className="h-3 w-3" />
       </Button>
@@ -498,18 +655,18 @@ export function BlockEditorItem({
         <div className="overflow-x-auto rounded-xl border border-border shadow-xs bg-card/60 backdrop-blur-xs">
           <table className="w-full text-xs text-left border-collapse">
             <thead>
-              <tr className="bg-muted/40 border-b border-border">
+              <tr className="border-b border-border bg-muted/40 font-semibold text-foreground">
                 {headers.map((h, colIdx) => (
-                  <th key={colIdx} className="p-2.5 font-semibold text-foreground border-r border-border/50 last:border-r-0 min-w-[120px]">
+                  <th key={`th-${colIdx}`} className="p-2 border-r border-border last:border-r-0">
                     {canEdit ? (
                       <input
                         value={h}
                         onChange={(e) => handleHeaderChange(colIdx, e.target.value)}
-                        className="w-full bg-transparent font-semibold text-xs focus:outline-none focus:bg-background/80 rounded px-1"
+                        className="w-full bg-transparent font-semibold focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1"
                         placeholder={`Заголовок ${colIdx + 1}`}
                       />
                     ) : (
-                      <span>{h}</span>
+                      <span className="px-1">{h}</span>
                     )}
                   </th>
                 ))}
@@ -518,30 +675,38 @@ export function BlockEditorItem({
             </thead>
             <tbody>
               {rows.map((row, rowIdx) => (
-                <tr key={rowIdx} className="border-b border-border/40 hover:bg-muted/20 transition-colors group/row">
+                <tr
+                  key={`tr-${rowIdx}`}
+                  className="border-b border-border/70 last:border-b-0 hover:bg-muted/20 transition-colors"
+                >
                   {row.map((cell, colIdx) => (
-                    <td key={colIdx} className="p-2 border-r border-border/40 last:border-r-0 min-w-[120px]">
+                    <td
+                      key={`td-${rowIdx}-${colIdx}`}
+                      className="p-2 border-r border-border/70 last:border-r-0"
+                    >
                       {canEdit ? (
                         <input
                           value={cell}
                           onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
-                          className="w-full bg-transparent text-xs text-foreground focus:outline-none focus:bg-background/80 rounded px-1"
+                          className="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1 text-foreground"
                           placeholder="..."
                         />
                       ) : (
-                        <RichTextRenderer content={cell} />
+                        <span className="px-1 text-foreground">{cell}</span>
                       )}
                     </td>
                   ))}
                   {canEdit && (
                     <td className="w-8 p-1 text-center">
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => deleteRow(rowIdx)}
-                        className="opacity-0 group-hover/row:opacity-100 text-muted-foreground hover:text-destructive transition-opacity cursor-pointer p-1"
+                        className="h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer"
                         title="Удалить строку"
                       >
                         <Trash2 className="h-3 w-3" />
-                      </button>
+                      </Button>
                     </td>
                   )}
                 </tr>
@@ -552,22 +717,32 @@ export function BlockEditorItem({
 
         {canEdit && (
           <div className="flex items-center gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={addRow} className="h-6 text-[11px] gap-1 px-2 cursor-pointer">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addRow}
+              className="h-6 text-[11px] gap-1 px-2 cursor-pointer"
+            >
               <Plus className="h-3 w-3" />
-              <span>Строка</span>
+              <span>Добавить строку</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={addCol} className="h-6 text-[11px] gap-1 px-2 cursor-pointer">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addCol}
+              className="h-6 text-[11px] gap-1 px-2 cursor-pointer"
+            >
               <Plus className="h-3 w-3" />
-              <span>Колонка</span>
+              <span>Добавить колонку</span>
             </Button>
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={onDelete}
-              className="h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer ml-auto"
-              title="Удалить таблицу"
+              className="h-6 text-[11px] gap-1 px-2 text-muted-foreground hover:text-destructive ml-auto cursor-pointer"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3 w-3" />
+              <span>Удалить таблицу</span>
             </Button>
           </div>
         )}
@@ -575,31 +750,42 @@ export function BlockEditorItem({
     );
   }
 
-  // 3. RENDER IMAGE BLOCK
+  // 3. RENDER IMAGE BLOCK (Device Upload + URL)
   if (block.blockType === "image") {
     const { caption, url } = parsedImage;
 
-    const handleSaveImage = (e?: React.FormEvent) => {
-      if (e) e.preventDefault();
+    const handleSaveImage = (e: React.FormEvent) => {
+      e.preventDefault();
       if (!imageUrlInput.trim()) return;
-      const serialized = serializeMarkdownImage(imageCaptionInput, imageUrlInput);
-      onChangeText(serialized);
+      onChangeText(serializeMarkdownImage(imageCaptionInput, imageUrlInput));
       setIsEditingImage(false);
     };
 
     return (
-      <div className="group relative my-4 space-y-2" onFocus={onFocus}>
+      <div className="group relative my-4" onFocus={onFocus}>
         <div className="absolute -left-7 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
 
+        {/* Hidden file input for uploading from device */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleUploadImageFile(file);
+          }}
+        />
+
         {url && !isEditingImage ? (
-          <div className="flex flex-col items-center group/img relative rounded-2xl border border-border overflow-hidden bg-card/60 p-2">
+          <div className="relative group/img flex flex-col items-center p-2 rounded-2xl bg-muted/20 border border-border/80">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={url}
               alt={caption || "Изображение"}
-              className="max-h-[420px] w-auto max-w-full rounded-xl object-contain shadow-xs"
+              className="max-h-[460px] w-auto max-w-full rounded-xl object-contain shadow-xs"
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).src =
                   "https://placehold.co/600x400/e2e8f0/475569?text=Изображение+не+найдено";
@@ -612,14 +798,24 @@ export function BlockEditorItem({
             )}
 
             {canEdit && (
-              <div className="absolute top-4 right-4 opacity-0 group-hover/img:opacity-100 transition-opacity flex gap-1.5 bg-background/80 backdrop-blur-md p-1 rounded-lg border border-border shadow-xs">
+              <div className="absolute top-4 right-4 opacity-0 group-hover/img:opacity-100 transition-opacity flex gap-1.5 bg-background/90 backdrop-blur-md p-1 rounded-lg border border-border shadow-xs">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-7 text-xs px-2 gap-1 cursor-pointer"
+                  title="Загрузить другое фото с устройства"
+                >
+                  <Upload className="h-3 w-3" />
+                  <span>Заменить</span>
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleOpenImageEditor}
                   className="h-7 text-xs px-2 cursor-pointer"
                 >
-                  Изменить URL
+                  Настройки
                 </Button>
                 <Button
                   variant="ghost"
@@ -633,61 +829,119 @@ export function BlockEditorItem({
             )}
           </div>
         ) : (
-          <form
-            onSubmit={handleSaveImage}
-            className="p-4 rounded-2xl border-2 border-dashed border-border bg-muted/20 space-y-3"
+          <div
+            className="p-5 rounded-2xl border-2 border-dashed border-border bg-muted/20 space-y-4"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const file = e.dataTransfer.files?.[0];
+              if (file) handleUploadImageFile(file);
+            }}
           >
-            <div className="flex items-center gap-2">
-              <ImageIcon className="h-4 w-4 text-primary" />
-              <span className="text-xs font-semibold text-foreground">Вставка изображения</span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="h-4 w-4 text-primary" />
+                <span className="text-xs font-semibold text-foreground">Вставка изображения</span>
+              </div>
+              {url && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsEditingImage(false)}
+                  className="h-6 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  Закрыть
+                </Button>
+              )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Input
-                placeholder="URL изображения (https://...)"
-                value={imageUrlInput}
-                onChange={(e) => setImageUrlInput(e.target.value)}
-                className="h-8 text-xs"
-              />
-              <Input
-                placeholder="Подпись / Alt текст"
-                value={imageCaptionInput}
-                onChange={(e) => setImageCaptionInput(e.target.value)}
-                className="h-8 text-xs"
-              />
+
+            {uploadError && (
+              <div className="p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{uploadError}</span>
+              </div>
+            )}
+
+            {/* Prominent Upload from Device Section */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 p-4 rounded-xl border border-border bg-card/70">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <Upload className="h-5 w-5" />
+              </div>
+              <div className="flex-1 text-center sm:text-left">
+                <p className="text-xs font-semibold text-foreground">Загрузить с локального устройства</p>
+                <p className="text-[11px] text-muted-foreground">
+                  PNG, JPG, WebP, SVG до 10 МБ. Файл будет надёжно сохранён в базе данных на сервере.
+                </p>
+              </div>
+              <Button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="h-8 text-xs gap-1.5 shrink-0 cursor-pointer font-medium"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Загрузка...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>Выбрать файл</span>
+                  </>
+                )}
+              </Button>
             </div>
-            <div className="flex items-center justify-between pt-1">
-              <div className="flex gap-2">
+
+            {/* Alternative: URL input */}
+            <form onSubmit={handleSaveImage} className="space-y-3 pt-2 border-t border-border/60">
+              <span className="text-[11px] font-medium text-muted-foreground">Или укажите внешнюю ссылку на картинку:</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Input
+                  placeholder="URL изображения (https://...)"
+                  value={imageUrlInput}
+                  onChange={(e) => setImageUrlInput(e.target.value)}
+                  className="h-8 text-xs"
+                />
+                <Input
+                  placeholder="Подпись / Alt текст"
+                  value={imageCaptionInput}
+                  onChange={(e) => setImageCaptionInput(e.target.value)}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="flex items-center justify-between pt-1">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setImageUrlInput("https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1000&q=80");
+                    setImageUrlInput(
+                      "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1000&q=80"
+                    );
                     setImageCaptionInput("Архитектурная схема компонентов");
                   }}
                   className="h-6 text-[11px] cursor-pointer"
                 >
                   Пример схемы
                 </Button>
-              </div>
-              <div className="flex gap-1.5">
-                {url && (
+                <div className="flex gap-1.5">
                   <Button
-                    type="button"
-                    variant="ghost"
+                    type="submit"
                     size="sm"
-                    onClick={() => setIsEditingImage(false)}
+                    disabled={!imageUrlInput.trim()}
                     className="h-7 text-xs cursor-pointer"
                   >
-                    Отмена
+                    Сохранить ссылку
                   </Button>
-                )}
-                <Button type="submit" size="sm" className="h-7 text-xs cursor-pointer">
-                  Сохранить
-                </Button>
+                </div>
               </div>
-            </div>
-          </form>
+            </form>
+          </div>
         )}
       </div>
     );
@@ -750,10 +1004,6 @@ export function BlockEditorItem({
       onChangeText(`${checked ? "[x]" : "[ ]"} ${task}`);
     };
 
-    const handleTaskChange = (newTask: string) => {
-      onChangeText(`${done ? "[x]" : "[ ]"} ${newTask}`);
-    };
-
     return (
       <div className="group relative flex items-start gap-2.5 my-1.5" onFocus={onFocus}>
         <div className="absolute -left-7 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
@@ -770,18 +1020,19 @@ export function BlockEditorItem({
           />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 relative">
+          {floatingFormattingBar}
+
           {canEdit ? (
-            <textarea
-              ref={textareaRef}
-              value={task}
-              onChange={(e) => handleTaskChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              className={`w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base resize-none py-0.5 leading-relaxed ${
+            <div
+              ref={contentRef}
+              contentEditable={canEdit}
+              suppressContentEditableWarning
+              onInput={handleContentInput}
+              onKeyDown={handleEditableKeyDown}
+              className={`w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base py-0.5 leading-relaxed min-h-[24px] ${
                 done ? "line-through text-muted-foreground" : "text-foreground font-normal"
               }`}
-              placeholder="Новая задача..."
             />
           ) : (
             <p className={`text-sm sm:text-base leading-relaxed ${done ? "line-through text-muted-foreground" : "text-foreground"}`}>
@@ -819,14 +1070,13 @@ export function BlockEditorItem({
             <Quote className="h-4 w-4 text-primary shrink-0 mt-0.5 opacity-80" />
             <div className="flex-1">
               {canEdit ? (
-                <textarea
-                  ref={textareaRef}
-                  value={text}
-                  onChange={(e) => onChangeText(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  className="w-full bg-transparent border-0 focus:outline-none italic text-sm sm:text-base text-foreground resize-none leading-relaxed font-serif"
-                  placeholder="Важная цитата или формулировка..."
-                  rows={Math.max(2, Math.ceil(text.length / 80))}
+                <div
+                  ref={contentRef}
+                  contentEditable={canEdit}
+                  suppressContentEditableWarning
+                  onInput={handleContentInput}
+                  onKeyDown={handleEditableKeyDown}
+                  className="w-full bg-transparent border-0 focus:outline-none italic text-sm sm:text-base text-foreground leading-relaxed font-serif min-h-[30px]"
                 />
               ) : (
                 <p className="italic text-sm sm:text-base text-foreground font-serif leading-relaxed">
@@ -871,14 +1121,13 @@ export function BlockEditorItem({
         <div className="flex-1 relative">
           {floatingFormattingBar}
           {canEdit ? (
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => onChangeText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base text-foreground resize-none py-0.5 leading-relaxed font-normal"
-              placeholder="Элемент списка..."
-              rows={1}
+            <div
+              ref={contentRef}
+              contentEditable={canEdit}
+              suppressContentEditableWarning
+              onInput={handleContentInput}
+              onKeyDown={handleEditableKeyDown}
+              className="w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base text-foreground py-0.5 leading-relaxed font-normal min-h-[24px]"
             />
           ) : (
             <p className="text-sm sm:text-base leading-relaxed text-foreground">
@@ -901,7 +1150,7 @@ export function BlockEditorItem({
     );
   }
 
-  // 8. RENDER HEADINGS & STANDARD PARAGRAPHS
+  // 8. RENDER HEADINGS & STANDARD PARAGRAPHS (Real ContentEditable WYSIWYG)
   const isH1 = block.blockType === "heading1";
   const isH2 = block.blockType === "heading2";
   const isH3 = block.blockType === "heading3";
@@ -925,22 +1174,13 @@ export function BlockEditorItem({
         {floatingFormattingBar}
 
         {canEdit ? (
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => onChangeText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            rows={isH1 || isH2 || isH3 ? 1 : Math.max(1, Math.ceil(text.length / 85))}
-            className={`w-full bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary/80 focus:outline-none py-1 resize-none ${typographyClass}`}
-            placeholder={
-              isH1
-                ? "Заголовок 1..."
-                : isH2
-                ? "Заголовок 2..."
-                : isH3
-                ? "Заголовок 3..."
-                : "Текст абзаца (введите текст, выделите для форматирования)..."
-            }
+          <div
+            ref={contentRef}
+            contentEditable={canEdit}
+            suppressContentEditableWarning
+            onInput={handleContentInput}
+            onKeyDown={handleEditableKeyDown}
+            className={`w-full bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary/80 focus:outline-none py-1 min-h-[28px] ${typographyClass}`}
           />
         ) : (
           <div className={`py-1 ${typographyClass}`}>

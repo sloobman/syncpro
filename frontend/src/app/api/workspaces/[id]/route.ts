@@ -27,3 +27,29 @@ export async function GET(
     return NextResponse.json({ error: "Ошибка сервера" }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const success = await WorkspaceRepository.deleteWorkspace(id, user.id);
+    if (!success) {
+      return NextResponse.json(
+        { error: "Не удалось удалить рабочее пространство или вы не являетесь владельцем" },
+        { status: 403 }
+      );
+    }
+
+    return NextResponse.json({ success: true, message: "Рабочее пространство удалено" });
+  } catch (err) {
+    console.error("[API Workspace DELETE Error]:", err);
+    return NextResponse.json({ error: "Ошибка удаления пространства" }, { status: 500 });
+  }
+}
