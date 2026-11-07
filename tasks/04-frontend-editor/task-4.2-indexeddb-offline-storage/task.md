@@ -1,4 +1,4 @@
-# Task 4.2: Офлайн-хранилище IndexedDB (Offline-First локальная персистентность)
+﻿# Task 4.2: Офлайн-хранилище IndexedDB (Offline-First локальная персистентность)
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-4.2`
@@ -6,7 +6,7 @@
 - **Приоритет:** P1
 - **Ответственная роль:** Frontend / Client Storage Engineer
 - **Зависимости:** [TASK-1.4](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.4-binary-codec-varint-rle/task.md), [TASK-4.1](file:///c:/Users/sloobman/syncpro/tasks/04-frontend-editor/task-4.1-prosemirror-crdt-binding/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L130), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L185)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L130), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L185)
 
 ---
 

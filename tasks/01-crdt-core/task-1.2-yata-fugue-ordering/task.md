@@ -1,4 +1,4 @@
-# Task 1.2: Алгоритм упорядочивания операций YATA / Fugue
+﻿# Task 1.2: Алгоритм упорядочивания операций YATA / Fugue
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-1.2`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер)
 - **Ответственная роль:** Systems / Algorithm Engineer
 - **Зависимости:** [TASK-1.1](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.1-clock-id-nodes/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L58-L64), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L109)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L58-L64), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L109)
 
 ---
 

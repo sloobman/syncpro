@@ -1,4 +1,4 @@
-# Task 4.1: Интеграция ProseMirror / TipTap с локальным CRDT-состоянием
+﻿# Task 4.1: Интеграция ProseMirror / TipTap с локальным CRDT-состоянием
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-4.1`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер клиентского редактора)
 - **Ответственная роль:** Frontend / Rich-Text Editor Engineer (TypeScript / React)
 - **Зависимости:** [TASK-1.1](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.1-clock-id-nodes/task.md), [TASK-1.4](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.4-binary-codec-varint-rle/task.md), [TASK-2.2](file:///c:/Users/sloobman/syncpro/tasks/02-sync-server/task-2.2-statevector-handshake/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L129)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L129)
 
 ---
 

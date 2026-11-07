@@ -1,4 +1,4 @@
-# Task 2.4: Буферизация дельт (Redis Streams) с дебаунсом записи в персистентный слой
+﻿# Task 2.4: Буферизация дельт (Redis Streams) с дебаунсом записи в персистентный слой
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-2.4`
@@ -6,7 +6,7 @@
 - **Приоритет:** P1
 - **Ответственная роль:** Backend / Infrastructure Engineer
 - **Зависимости:** [TASK-0.1](file:///c:/Users/sloobman/syncpro/tasks/00-infrastructure-foundation/task-0.1-dev-environment/task.md), [TASK-2.1](file:///c:/Users/sloobman/syncpro/tasks/02-sync-server/task-2.1-ws-gateway-room-router/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L38-L44), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L118)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L38-L44), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L118)
 
 ---
 

@@ -35,7 +35,7 @@ function generateUuid(): string {
 }
 
 export function CreateDocumentDialog({
-  workspaceId: _workspaceId,
+  workspaceId,
   children,
 }: {
   workspaceId?: string;
@@ -57,7 +57,11 @@ export function CreateDocumentDialog({
       setLoading(false);
       setOpen(false);
       setTitle("");
-      router.push(`/doc/${docId}`);
+      router.push(
+        workspaceId
+          ? `/doc/${docId}?workspace=${encodeURIComponent(workspaceId)}`
+          : `/doc/${docId}`
+      );
     }, 400);
   };
 

@@ -1,4 +1,4 @@
-# Task 4.4: Пользовательский интерфейс контроля версий: дерево веток, Time-Travel и Diff
+﻿# Task 4.4: Пользовательский интерфейс контроля версий: дерево веток, Time-Travel и Diff
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-4.4`
@@ -6,7 +6,7 @@
 - **Приоритет:** P1
 - **Ответственная роль:** Frontend / UI/UX Engineer (React / Tailwind / Canvas/SVG)
 - **Зависимости:** [TASK-3.1](file:///c:/Users/sloobman/syncpro/tasks/03-merkle-dag-versioning/task-3.1-micro-commits-milestones/task.md), [TASK-3.3](file:///c:/Users/sloobman/syncpro/tasks/03-merkle-dag-versioning/task-3.3-crdt-3way-merge/task.md), [TASK-4.1](file:///c:/Users/sloobman/syncpro/tasks/04-frontend-editor/task-4.1-prosemirror-crdt-binding/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L132), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L186)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L132), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L186)
 
 ---
 

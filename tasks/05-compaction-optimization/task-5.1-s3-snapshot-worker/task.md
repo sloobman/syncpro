@@ -1,4 +1,4 @@
-# Task 5.1: Фоновый воркер создания CRDT-снапшотов в CAS (S3/MinIO)
+﻿# Task 5.1: Фоновый воркер создания CRDT-снапшотов в CAS (S3/MinIO)
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-5.1`
@@ -6,7 +6,7 @@
 - **Приоритет:** P1
 - **Ответственная роль:** Backend / Distributed Systems Engineer
 - **Зависимости:** [TASK-0.1](file:///c:/Users/sloobman/syncpro/tasks/00-infrastructure-foundation/task-0.1-dev-environment/task.md), [TASK-1.4](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.4-binary-codec-varint-rle/task.md), [TASK-3.1](file:///c:/Users/sloobman/syncpro/tasks/03-merkle-dag-versioning/task-3.1-micro-commits-milestones/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L41-L51), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L135)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L41-L51), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L135)
 
 ---
 

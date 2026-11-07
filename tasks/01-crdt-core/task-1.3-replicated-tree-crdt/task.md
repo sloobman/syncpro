@@ -1,4 +1,4 @@
-# Task 1.3: Replicated Tree CRDT для блочной структуры и перемещения узлов
+﻿# Task 1.3: Replicated Tree CRDT для блочной структуры и перемещения узлов
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-1.3`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер)
 - **Ответственная роль:** Systems / Algorithm Engineer
 - **Зависимости:** [TASK-1.1](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.1-clock-id-nodes/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L63-L64), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L110)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L63-L64), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L110)
 
 ---
 
