@@ -830,4 +830,37 @@ export class WorkspaceRepository {
       return null;
     }
   }
+
+  /**
+   * Deletes a document if user has edit or owner permission.
+   */
+  static async deleteDocument(documentId: string, userId: string): Promise<boolean> {
+    const validDocId = toValidUUID(documentId);
+    const doc = await this.getDocumentById(documentId, userId);
+    if (!doc || !doc.canEdit) return false;
+    try {
+      const res = await query('DELETE FROM documents WHERE id = $1', [validDocId]);
+      return (res.rowCount ?? 0) > 0;
+    } catch (err) {
+      console.error('[WorkspaceRepository.deleteDocument error]:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Deletes a workspace if user is the owner.
+   */
+  static async deleteWorkspace(workspaceId: string, userId: string): Promise<boolean> {
+    const validWsId = toValidUUID(workspaceId);
+    const validUserId = toValidUUID(userId);
+    const ws = await this.getWorkspaceById(workspaceId, userId);
+    if (!ws || ws.ownerId !== validUserId) return false;
+    try {
+      const res = await query('DELETE FROM workspaces WHERE id = $1 AND owner_id = $2', [validWsId, validUserId]);
+      return (res.rowCount ?? 0) > 0;
+    } catch (err) {
+      console.error('[WorkspaceRepository.deleteWorkspace error]:', err);
+      return false;
+    }
+  }
 }

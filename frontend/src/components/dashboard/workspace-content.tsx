@@ -2,7 +2,8 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { ChevronRight, ArrowUpDown, Search, X, Check, Eye } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronRight, ArrowUpDown, Search, X, Check, Eye, MoreVertical, Trash2 } from "lucide-react";
 import { DocumentRow } from "@/components/dashboard/document-row";
 import { CreateDocumentDialog } from "@/components/dashboard/create-document-dialog";
 import { InviteMembersDialog } from "@/components/dashboard/invite-members-dialog";
@@ -17,15 +18,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 type SortMode = "updated_desc" | "updated_asc" | "title_asc" | "words_desc";
 
 export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
+  const router = useRouter();
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const allDocuments = useWorkspaceStore((state) => state.documents);
   const updateDocument = useWorkspaceStore((state) => state.updateDocument);
   const deleteDocument = useWorkspaceStore((state) => state.deleteDocument);
+  const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
   const createDocument = useWorkspaceStore((state) => state.createDocument);
   const fetchWorkspaces = useWorkspaceStore((state) => state.fetchWorkspaces);
   const fetchWorkspaceDocuments = useWorkspaceStore((state) => state.fetchWorkspaceDocuments);
@@ -49,6 +60,7 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("updated_desc");
+  const [deleteWsOpen, setDeleteWsOpen] = useState(false);
 
   // Filter documents belonging to this workspace
   const workspaceDocs = useMemo(() => {
@@ -82,6 +94,12 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   const handleDelete = (id: string) => {
     if (isViewer) return;
     deleteDocument(id);
+  };
+
+  const handleConfirmDeleteWorkspace = () => {
+    deleteWorkspace(workspaceId);
+    setDeleteWsOpen(false);
+    router.push("/dashboard");
   };
 
   // Filtered & Sorted documents
@@ -160,6 +178,30 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
           <div className="flex items-center gap-2.5">
             <InviteMembersDialog workspaceId={workspaceId} />
             {!isViewer && <CreateDocumentDialog workspaceId={workspaceId} />}
+
+            {/* Workspace more actions */}
+            {!isViewer && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52 text-xs">
+                  <DropdownMenuItem
+                    onClick={() => setDeleteWsOpen(true)}
+                    className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Удалить пространство</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </div>
@@ -168,13 +210,13 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full sm:w-auto">
           <TabsList className="bg-muted/50 p-1">
-            <TabsTrigger value="all" className="text-xs">
+            <TabsTrigger value="all" className="text-xs cursor-pointer">
               Все ({allCount})
             </TabsTrigger>
-            <TabsTrigger value="favorites" className="text-xs">
+            <TabsTrigger value="favorites" className="text-xs cursor-pointer">
               Избранные ({favCount})
             </TabsTrigger>
-            <TabsTrigger value="archive" className="text-xs">
+            <TabsTrigger value="archive" className="text-xs cursor-pointer">
               Архив ({archCount})
             </TabsTrigger>
           </TabsList>
@@ -197,7 +239,7 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
                   setSearchQuery("");
                   setSearchOpen(false);
                 }}
-                className="absolute right-2.5 text-muted-foreground hover:text-foreground"
+                className="absolute right-2.5 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -217,13 +259,9 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
           {/* Sort Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs gap-1.5 cursor-pointer flex-1 sm:flex-none justify-center"
-              >
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 cursor-pointer">
                 <ArrowUpDown className="h-3.5 w-3.5" />
-                <span>Сортировка</span>
+                <span className="hidden sm:inline">Сортировка</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48 text-xs">
@@ -231,30 +269,30 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => setSortMode("updated_desc")}
-                className="flex items-center justify-between"
+                className="flex items-center justify-between cursor-pointer"
               >
-                Сначала новые
+                <span>Сначала новые</span>
                 {sortMode === "updated_desc" && <Check className="h-3.5 w-3.5 text-primary" />}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setSortMode("updated_asc")}
-                className="flex items-center justify-between"
+                className="flex items-center justify-between cursor-pointer"
               >
-                Сначала старые
+                <span>Сначала старые</span>
                 {sortMode === "updated_asc" && <Check className="h-3.5 w-3.5 text-primary" />}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setSortMode("title_asc")}
-                className="flex items-center justify-between"
+                className="flex items-center justify-between cursor-pointer"
               >
-                По названию (А-Я)
+                <span>По названию (А-Я)</span>
                 {sortMode === "title_asc" && <Check className="h-3.5 w-3.5 text-primary" />}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setSortMode("words_desc")}
-                className="flex items-center justify-between"
+                className="flex items-center justify-between cursor-pointer"
               >
-                По размеру
+                <span>По количеству слов</span>
                 {sortMode === "words_desc" && <Check className="h-3.5 w-3.5 text-primary" />}
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -296,6 +334,38 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
           </div>
         )}
       </div>
+
+      {/* Delete Workspace Confirmation Dialog */}
+      <Dialog open={deleteWsOpen} onOpenChange={setDeleteWsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Удалить рабочее пространство?</DialogTitle>
+            <DialogDescription className="text-xs">
+              Вы уверены, что хотите удалить рабочее пространство «{currentWs.name}»? Все документы, вложенные файлы и история версий в нем будут безвозвратно удалены.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteWsOpen(false)}
+              className="text-xs cursor-pointer"
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={handleConfirmDeleteWorkspace}
+              className="text-xs cursor-pointer"
+            >
+              Удалить навсегда
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

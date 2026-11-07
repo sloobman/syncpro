@@ -48,6 +48,10 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
     }
   };
 
+  const preventBlur = (e: React.MouseEvent) => {
+    e.preventDefault();
+  };
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="h-10 border-b border-border bg-card/75 backdrop-blur-md px-3 flex items-center gap-1 overflow-x-auto no-scrollbar select-none z-10">
@@ -58,6 +62,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("undo")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -71,6 +76,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("redo")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -90,6 +96,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("h1")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -103,6 +110,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("h2")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -116,6 +124,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("h3")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -128,52 +137,56 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
 
         <Separator orientation="vertical" className="h-4 mx-1" />
 
-        {/* Text formatting */}
+        {/* Text formatting (True WYSIWYG) */}
         <div className="flex items-center">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("bold")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer font-bold"
               >
                 <Bold className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Жирный (Cmd+B)</TooltipContent>
+            <TooltipContent>Жирный (Ctrl+B)</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("italic")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <Italic className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Курсив (Cmd+I)</TooltipContent>
+            <TooltipContent>Курсив (Ctrl+I)</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("underline")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <Underline className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Подчёркнутый (Cmd+U)</TooltipContent>
+            <TooltipContent>Подчёркнутый (Ctrl+U)</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("strike")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -193,6 +206,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("bullet-list")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -206,6 +220,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("numbered-list")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -219,6 +234,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("todo-list")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -238,6 +254,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("quote")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -251,6 +268,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("code")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -264,6 +282,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("table")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -283,6 +302,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("link")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -296,6 +316,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
               <Button
                 variant="ghost"
                 size="icon"
+                onMouseDown={preventBlur}
                 onClick={() => trigger("image")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >

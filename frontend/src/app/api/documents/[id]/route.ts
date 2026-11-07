@@ -77,3 +77,29 @@ export async function PUT(
 ) {
   return PATCH(request, context);
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const success = await WorkspaceRepository.deleteDocument(id, user.id);
+    if (!success) {
+      return NextResponse.json(
+        { error: "Не удалось удалить документ или доступ ограничен" },
+        { status: 403 }
+      );
+    }
+
+    return NextResponse.json({ success: true, message: "Документ удален" });
+  } catch (err) {
+    console.error("[API Document DELETE Error]:", err);
+    return NextResponse.json({ error: "Ошибка удаления документа" }, { status: 500 });
+  }
+}
