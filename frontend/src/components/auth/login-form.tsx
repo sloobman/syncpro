@@ -37,8 +37,12 @@ export function LoginForm() {
       setApiError(null);
       await login(data.email, data.password);
       router.push("/dashboard");
-    } catch {
-      setApiError("Неверный email или пароль. Попробуйте ещё раз.");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Неверный email или пароль. Попробуйте ещё раз.");
+      }
     }
   }
 

@@ -23,8 +23,19 @@ const templates = [
   { id: "tech-spec", name: "Тех. Спецификация", icon: Code2, desc: "Архитектура, контракты и DoD" },
 ];
 
+function generateUuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export function CreateDocumentDialog({
-  workspaceId,
+  workspaceId: _workspaceId,
   children,
 }: {
   workspaceId?: string;
@@ -41,12 +52,13 @@ export function CreateDocumentDialog({
     if (!title.trim()) return;
     setLoading(true);
 
+    const docId = generateUuid();
     setTimeout(() => {
       setLoading(false);
       setOpen(false);
       setTitle("");
-      router.push(`/doc/doc_${Date.now()}`);
-    }, 500);
+      router.push(`/doc/${docId}`);
+    }, 400);
   };
 
   return (

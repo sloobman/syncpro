@@ -36,9 +36,10 @@ export function Sidebar() {
   const { sidebarCollapsed, collapseSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     router.push("/auth/login");
+    router.refresh();
   };
 
   const displayName = user?.name || "Гость";

@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { query } from "./postgres";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
 
@@ -27,17 +28,25 @@ export interface DbCommitRow {
   branch: string;
 }
 
+export function toValidUUID(id: string): string {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(id)) return id;
+  const hash = crypto.createHash("md5").update(id).digest("hex");
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
 export class MerkleDAGRepository {
   /**
    * Ensures document exists in PostgreSQL. If not, creates it.
    */
   static async ensureDocument(id: string, title = "Безымянный документ"): Promise<DbDocument> {
+    const validId = toValidUUID(id);
     const res = await query<DbDocument>(
       `INSERT INTO documents (id, title, default_branch)
        VALUES ($1, $2, 'main')
        ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title
        RETURNING *`,
-      [id, title]
+      [validId, title]
     );
     return res.rows[0];
   }
@@ -46,6 +55,7 @@ export class MerkleDAGRepository {
    * Loads all commits for a given document, including their DAG parent links.
    */
   static async getCommitsByDocument(documentId: string): Promise<MerkleCommit[]> {
+    const validId = toValidUUID(documentId);
     const sql = `
       SELECT 
         c.id,
@@ -77,7 +87,7 @@ export class MerkleDAGRepository {
       ORDER BY c.created_at ASC
     `;
 
-    const res = await query<DbCommitRow>(sql, [documentId]);
+    const res = await query<DbCommitRow>(sql, [validId]);
 
     return res.rows.map((row) => ({
       id: row.id.trim(),
@@ -90,7 +100,7 @@ export class MerkleDAGRepository {
       message: row.message,
       author: {
         userId: row.author_id,
-        name: row.author_id === "system" ? "SyncPro Core Engine" : "Пользователь",
+        name: row.author_id === "00000000-0000-0000-0000-000000000000" ? "SyncPro Core Engine" : "Пользователь",
         avatarUrl: null,
       },
       timestamp: new Date(row.created_at).getTime(),
@@ -102,17 +112,35 @@ export class MerkleDAGRepository {
    * Saves a new Merkle Commit and links its DAG parent nodes atomically.
    */
   static async saveCommit(commit: MerkleCommit): Promise<void> {
+    const validDocId = toValidUUID(commit.documentId);
+    let validAuthorId = "00000000-0000-0000-0000-000000000000";
+    if (commit.author?.userId) {
+      try {
+        validAuthorId = toValidUUID(commit.author.userId);
+      } catch {
+        validAuthorId = "00000000-0000-0000-0000-000000000000";
+      }
+    }
+
     await query("BEGIN");
     try {
-      // 1. Ensure document exists
+      // 1. Ensure system author exists in users
+      await query(
+        `INSERT INTO users (id, email, name, password_hash, role)
+         VALUES ($1, $2, $3, '$2a$12$systemdummyhash', 'system')
+         ON CONFLICT (id) DO NOTHING`,
+        [validAuthorId, `user-${validAuthorId}@syncpro.dev`, commit.author?.name || "Пользователь"]
+      );
+
+      // 2. Ensure document exists
       await query(
         `INSERT INTO documents (id, title, default_branch)
          VALUES ($1, 'Документ SyncPro', 'main')
          ON CONFLICT (id) DO NOTHING`,
-        [commit.documentId]
+        [validDocId]
       );
 
-      // 2. Insert commit
+      // 3. Insert commit
       await query(
         `INSERT INTO commits (
            id,
@@ -128,8 +156,8 @@ export class MerkleDAGRepository {
            snapshot_storage_path = COALESCE(EXCLUDED.snapshot_storage_path, commits.snapshot_storage_path)`,
         [
           commit.id,
-          commit.documentId,
-          commit.author.userId || "00000000-0000-0000-0000-000000000000",
+          validDocId,
+          validAuthorId,
           commit.message,
           commit.crdtDeltaStoragePath,
           commit.snapshotStoragePath || null,
@@ -137,7 +165,7 @@ export class MerkleDAGRepository {
         ]
       );
 
-      // 3. Insert commit parent edges
+      // 4. Insert commit parent edges
       if (commit.parents && commit.parents.length > 0) {
         for (let order = 0; order < commit.parents.length; order++) {
           const parentId = commit.parents[order];
@@ -150,13 +178,13 @@ export class MerkleDAGRepository {
         }
       }
 
-      // 4. Update branch head pointer
+      // 5. Update branch head pointer
       await query(
         `INSERT INTO branches (document_id, name, head_commit_id)
          VALUES ($1, $2, $3)
          ON CONFLICT (document_id, name)
          DO UPDATE SET head_commit_id = EXCLUDED.head_commit_id`,
-        [commit.documentId, commit.branch || "main", commit.id]
+        [validDocId, commit.branch || "main", commit.id]
       );
 
       await query("COMMIT");
@@ -190,12 +218,13 @@ export class MerkleDAGRepository {
    * Retrieves all branches of a document.
    */
   static async getBranches(documentId: string): Promise<DbBranch[]> {
+    const validId = toValidUUID(documentId);
     const res = await query<DbBranch>(
       `SELECT document_id, name, head_commit_id, created_at
        FROM branches
        WHERE document_id = $1
        ORDER BY name ASC`,
-      [documentId]
+      [validId]
     );
     return res.rows.map((b) => ({ ...b, head_commit_id: b.head_commit_id.trim() }));
   }
