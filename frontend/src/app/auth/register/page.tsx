@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { RegisterForm } from "@/components/auth/register-form";
 import { SocialAuthButtons } from "@/components/auth/social-auth-buttons";
 import { Separator } from "@/components/ui/separator";
+
+export const metadata: Metadata = {
+  title: "Регистрация — SyncPro",
+};
 
 export default function RegisterPage() {
   return (

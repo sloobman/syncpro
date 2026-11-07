@@ -1,22 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { ShieldAlert } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 function GoogleIcon() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="currentColor"
       aria-hidden="true"
@@ -44,8 +35,8 @@ function GoogleIcon() {
 function GitHubIcon() {
   return (
     <svg
-      width="20"
-      height="20"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="currentColor"
       aria-hidden="true"
@@ -56,57 +47,39 @@ function GitHubIcon() {
 }
 
 export function SocialAuthButtons() {
-  const [providerModal, setProviderModal] = useState<string | null>(null);
-
   return (
-    <>
-      <div className="flex flex-col gap-3">
-        <Button
-          variant="outline"
-          type="button"
-          className="w-full"
-          onClick={() => setProviderModal("Google")}
-        >
+    <div className="flex flex-col gap-2.5">
+      <Button
+        variant="outline"
+        type="button"
+        disabled
+        className="w-full justify-between opacity-65 cursor-not-allowed h-9 text-xs"
+        title="Авторизация через Google временно в разработке"
+      >
+        <span className="flex items-center gap-2.5">
           <GoogleIcon />
           <span>Войти через Google</span>
-        </Button>
-        <Button
-          variant="outline"
-          type="button"
-          className="w-full"
-          onClick={() => setProviderModal("GitHub")}
-        >
+        </span>
+        <Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-normal text-muted-foreground">
+          Скоро
+        </Badge>
+      </Button>
+
+      <Button
+        variant="outline"
+        type="button"
+        disabled
+        className="w-full justify-between opacity-65 cursor-not-allowed h-9 text-xs"
+        title="Авторизация через GitHub временно в разработке"
+      >
+        <span className="flex items-center gap-2.5">
           <GitHubIcon />
           <span>Войти через GitHub</span>
-        </Button>
-      </div>
-
-      <Dialog open={!!providerModal} onOpenChange={(open) => !open && setProviderModal(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-full bg-amber-500/10 text-amber-500">
-                <ShieldAlert className="size-5" />
-              </div>
-              <div>
-                <DialogTitle>Вход через {providerModal}</DialogTitle>
-                <DialogDescription>Требование безопасности</DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            Вход через сторонние сервисы ({providerModal}) временно ограничен согласно политике безопасности production-окружения SyncPro. 
-            Пожалуйста, используйте защищённую авторизацию по <strong>Email и паролю</strong> или зарегистрируйте новый аккаунт.
-          </p>
-
-          <DialogFooter>
-            <Button onClick={() => setProviderModal(null)}>
-              Понятно
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+        </span>
+        <Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-normal text-muted-foreground">
+          Скоро
+        </Badge>
+      </Button>
+    </div>
   );
 }

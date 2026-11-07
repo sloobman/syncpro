@@ -46,7 +46,7 @@ const stepVariants = {
 
 export function HowItWorks() {
   return (
-    <section className="bg-muted/30 py-20 sm:py-28">
+    <section id="how-it-works" className="bg-muted/30 py-20 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Section header */}
         <motion.h2
