@@ -51,8 +51,12 @@ export function RegisterForm() {
         password: data.password,
       });
       router.push("/dashboard");
-    } catch {
-      setApiError("Не удалось создать аккаунт. Попробуйте позже.");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setApiError(err.message);
+      } else {
+        setApiError("Не удалось создать аккаунт. Попробуйте позже.");
+      }
     }
   }
 
@@ -71,7 +75,7 @@ export function RegisterForm() {
         <Label htmlFor="register-name">Имя</Label>
         <Input
           id="register-name"
-          placeholder="Иван Петров"
+          placeholder="Ваше имя"
           autoComplete="name"
           aria-invalid={!!errors.name}
           className={cn(errors.name && "border-red-500 focus-visible:ring-red-500")}

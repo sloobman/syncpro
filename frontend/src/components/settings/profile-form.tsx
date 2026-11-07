@@ -27,12 +27,34 @@ export function ProfileForm() {
   const [timezone, setTimezone] = useState<string>(user?.timezone || "Europe/Moscow");
   const [locale, setLocale] = useState<"ru" | "en">(user?.locale || "ru");
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateProfile({ name, timezone, locale });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaving(true);
+    try {
+      const res = await fetch("/api/auth/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          updateProfile({ name: data.user.name, timezone, locale });
+        }
+      } else {
+        updateProfile({ name, timezone, locale });
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      updateProfile({ name, timezone, locale });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const initials = name
@@ -134,11 +156,13 @@ export function ProfileForm() {
       </div>
 
       <div className="flex items-center gap-3 pt-2">
-        <Button type="submit">
+        <Button type="submit" disabled={saving}>
           {saved ? (
             <span className="flex items-center gap-1.5">
               <Check className="h-4 w-4" /> Сохранено
             </span>
+          ) : saving ? (
+            "Сохранение..."
           ) : (
             "Сохранить изменения"
           )}
@@ -160,8 +184,8 @@ export function ProfileForm() {
           variant="destructive"
           size="sm"
           className="gap-2"
-          onClick={() => {
-            logout();
+          onClick={async () => {
+            await logout();
             router.push("/auth/login");
           }}
         >

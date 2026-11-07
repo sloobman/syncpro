@@ -14,21 +14,66 @@ BEGIN
 END
 $$;
 
--- 3. Core Merkle-CRDT DAG Schema (antigravity.md & task-3.2)
+-- 3. Users Table (Real production authentication)
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    avatar_url TEXT,
+    role VARCHAR(32) NOT NULL DEFAULT 'user',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index on email for instant login lookups
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+-- Default system user seed for internal commits and engine operations
+INSERT INTO users (id, email, name, password_hash, role)
+VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    'system@syncpro.dev',
+    'SyncPro System',
+    '$2a$12$KIXs6.yUjY6XpD9YVw8JceYtU477jT247XQ7o2j4zQJ9L6B4n9g6y',
+    'system'
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- 4. Workspaces Table
+CREATE TABLE IF NOT EXISTS workspaces (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Workspace Members
+CREATE TABLE IF NOT EXISTS workspace_members (
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(32) NOT NULL DEFAULT 'member', -- owner, admin, member, viewer
+    PRIMARY KEY (workspace_id, user_id)
+);
+
+-- 5. Core Merkle-CRDT DAG Schema (antigravity.md & task-3.2)
 
 -- Documents Table
 CREATE TABLE IF NOT EXISTS documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID REFERENCES workspaces(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     default_branch VARCHAR(64) NOT NULL DEFAULT 'main',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Commits Table (Merkle Commits identified by SHA-256 hash)
 CREATE TABLE IF NOT EXISTS commits (
     id CHAR(64) PRIMARY KEY, -- SHA-256 Hash
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    author_id UUID NOT NULL,
+    author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     message TEXT NOT NULL,
     crdt_delta_storage_path TEXT NOT NULL,
     snapshot_storage_path TEXT,
@@ -52,11 +97,12 @@ CREATE TABLE IF NOT EXISTS branches (
     PRIMARY KEY (document_id, name)
 );
 
--- 4. Indexes for Fast Traversal & Topological Ordering
+-- 6. Indexes for Fast Traversal & Topological Ordering
 CREATE INDEX IF NOT EXISTS idx_commits_doc ON commits(document_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_commit_parents_parent ON commit_parents(parent_commit_id);
 CREATE INDEX IF NOT EXISTS idx_branches_doc ON branches(document_id);
+CREATE INDEX IF NOT EXISTS idx_documents_workspace ON documents(workspace_id);
 
--- 5. Grant Permissions
+-- 7. Grant Permissions
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO PUBLIC;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO PUBLIC;
