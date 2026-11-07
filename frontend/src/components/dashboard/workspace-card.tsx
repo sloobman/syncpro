@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Users, FileText, ArrowRight } from "lucide-react";
+import { Users, FileText, ArrowRight, Eye } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Workspace } from "@/types";
 import { formatRelativeTime } from "@/lib/format";
@@ -9,6 +9,8 @@ interface WorkspaceCardProps {
 }
 
 export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
+  const role = workspace.currentUserRole;
+
   return (
     <Link href={`/dashboard/workspace/${workspace.id}`} className="group block">
       <Card className="h-full border-border/70 transition-all duration-200 hover:border-primary/50 hover:shadow-md hover:-translate-y-0.5">
@@ -18,9 +20,25 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
               {workspace.iconEmoji || "📁"}
             </span>
             <div>
-              <CardTitle className="text-lg font-semibold group-hover:text-primary transition-colors">
-                {workspace.name}
-              </CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-lg font-semibold group-hover:text-primary transition-colors">
+                  {workspace.name}
+                </CardTitle>
+                {role === "viewer" ? (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border flex items-center gap-1 shrink-0">
+                    <Eye className="h-2.5 w-2.5" />
+                    Читатель
+                  </span>
+                ) : role === "commenter" ? (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shrink-0">
+                    Комменты
+                  </span>
+                ) : role === "editor" ? (
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shrink-0">
+                    Редактор
+                  </span>
+                ) : null}
+              </div>
               <CardDescription className="line-clamp-1 text-xs mt-0.5">
                 {workspace.description || "Без описания"}
               </CardDescription>

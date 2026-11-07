@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { ChevronRight, Filter, ArrowUpDown, Search, X, Check } from "lucide-react";
+import { ChevronRight, ArrowUpDown, Search, X, Check, Eye } from "lucide-react";
 import { DocumentRow } from "@/components/dashboard/document-row";
 import { CreateDocumentDialog } from "@/components/dashboard/create-document-dialog";
 import { InviteMembersDialog } from "@/components/dashboard/invite-members-dialog";
@@ -40,7 +40,10 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
     name: "Рабочее пространство",
     iconEmoji: "📁",
     description: "Пространство документов и совместной работы",
+    currentUserRole: "viewer" as const,
   };
+
+  const isViewer = currentWs.currentUserRole === "viewer" || currentWs.currentUserRole === "commenter";
 
   const [activeTab, setActiveTab] = useState<string>("all");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -61,10 +64,12 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   };
 
   const handleRename = (id: string, newTitle: string) => {
+    if (isViewer) return;
     updateDocument(id, { title: newTitle });
   };
 
   const handleDuplicate = async (id: string) => {
+    if (isViewer) return;
     const original = allDocuments.find((d) => d.id === id);
     if (!original) return;
     await createDocument({
@@ -75,6 +80,7 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   };
 
   const handleDelete = (id: string) => {
+    if (isViewer) return;
     deleteDocument(id);
   };
 
@@ -134,9 +140,17 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
               {currentWs.iconEmoji || "📁"}
             </span>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                {currentWs.name}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                  {currentWs.name}
+                </h1>
+                {isViewer && (
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border flex items-center gap-1">
+                    <Eye className="h-3 w-3" />
+                    Читатель
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {currentWs.description || "Рабочее пространство для документации"}
               </p>
@@ -145,7 +159,7 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
 
           <div className="flex items-center gap-2.5">
             <InviteMembersDialog workspaceId={workspaceId} />
-            <CreateDocumentDialog workspaceId={workspaceId} />
+            {!isViewer && <CreateDocumentDialog workspaceId={workspaceId} />}
           </div>
         </div>
       </div>
@@ -166,15 +180,16 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
           </TabsList>
         </Tabs>
 
-        <div className="flex items-center gap-2">
+        {/* Search & Sort Controls */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           {searchOpen ? (
-            <div className="relative flex items-center">
+            <div className="relative flex-1 sm:w-64 flex items-center">
               <Search className="absolute left-2.5 h-3.5 w-3.5 text-muted-foreground" />
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Фильтр по названию..."
-                className="h-8 pl-8 pr-7 text-xs w-48 sm:w-64"
+                placeholder="Поиск по документам..."
+                className="pl-8 pr-8 h-8 text-xs bg-card"
                 autoFocus
               />
               <button
@@ -182,7 +197,7 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
                   setSearchQuery("");
                   setSearchOpen(false);
                 }}
-                className="absolute right-2 text-muted-foreground hover:text-foreground"
+                className="absolute right-2.5 text-muted-foreground hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -192,19 +207,23 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
               variant="outline"
               size="sm"
               onClick={() => setSearchOpen(true)}
-              className="h-8 gap-1.5 text-xs cursor-pointer"
+              className="h-8 text-xs gap-1.5 cursor-pointer flex-1 sm:flex-none justify-center"
             >
-              <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>Фильтр{searchQuery ? " (1)" : ""}</span>
+              <Search className="h-3.5 w-3.5" />
+              <span>Поиск</span>
             </Button>
           )}
 
           {/* Sort Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs cursor-pointer">
-                <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="hidden sm:inline">Сортировка</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5 cursor-pointer flex-1 sm:flex-none justify-center"
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                <span>Сортировка</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48 text-xs">
@@ -250,10 +269,11 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
             <DocumentRow
               key={doc.id}
               document={doc}
+              readOnly={isViewer}
               onToggleFavorite={handleToggleFavorite}
-              onRename={handleRename}
-              onDuplicate={handleDuplicate}
-              onDelete={handleDelete}
+              onRename={isViewer ? undefined : handleRename}
+              onDuplicate={isViewer ? undefined : handleDuplicate}
+              onDelete={isViewer ? undefined : handleDelete}
             />
           ))
         ) : (
@@ -268,18 +288,11 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
               <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
                 {searchQuery
                   ? "Попробуйте изменить поисковый запрос или сбросить фильтры"
-                  : "Создайте первый документ с помощью кнопки вверху страницы"}
+                  : isViewer
+                  ? "Владелец пространства еще не добавил сюда документы"
+                  : "Создайте первый документ выше, чтобы начать совместную работу"}
               </p>
             </div>
-            {!searchQuery && (
-              <div className="pt-2">
-                <CreateDocumentDialog workspaceId={workspaceId}>
-                  <Button size="sm" className="gap-2 text-xs">
-                    Создать документ
-                  </Button>
-                </CreateDocumentDialog>
-              </div>
-            )}
           </div>
         )}
       </div>

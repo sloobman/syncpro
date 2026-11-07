@@ -37,9 +37,12 @@ export async function POST(
     }
 
     const { id } = await params;
-    const hasAccess = await WorkspaceRepository.isUserMemberOrOwner(id, user.id);
-    if (!hasAccess) {
-      return NextResponse.json({ error: "Доступ запрещен" }, { status: 403 });
+    const canEdit = await WorkspaceRepository.canUserEditWorkspace(id, user.id);
+    if (!canEdit) {
+      return NextResponse.json(
+        { error: "Доступ запрещен. У вас права только на чтение (Читатель)" },
+        { status: 403 }
+      );
     }
 
     const body = await request.json();
