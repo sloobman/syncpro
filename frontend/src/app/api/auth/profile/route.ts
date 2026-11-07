@@ -13,7 +13,13 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, avatarUrl } = body;
+    const name = typeof body.name === "string" ? body.name.trim() : undefined;
+    const avatarUrl =
+      body.avatarUrl === null || body.avatarUrl === ""
+        ? null
+        : typeof body.avatarUrl === "string"
+        ? body.avatarUrl
+        : undefined;
 
     const updatedUser = await UserRepository.updateProfile(payload.id, {
       name,

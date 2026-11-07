@@ -1,6 +1,7 @@
 "use client";
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface Collaborator {
   id: string;
@@ -23,10 +24,15 @@ export function PresenceAvatars({ users }: PresenceAvatarsProps) {
         {visible.map((u) => (
           <Tooltip key={u.id}>
             <TooltipTrigger asChild>
-              <div
-                className={`relative flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold text-white shadow-sm ring-2 ring-background cursor-pointer select-none ${u.color}`}
-              >
-                {u.name.slice(0, 1)}
+              <div className="relative cursor-pointer select-none">
+                <Avatar className={`h-7 w-7 ring-2 ring-background text-[11px] font-bold text-white shadow-sm ${u.color}`}>
+                  {u.avatarUrl ? (
+                    <AvatarImage src={u.avatarUrl} alt={u.name} className="object-cover" />
+                  ) : null}
+                  <AvatarFallback className={`${u.color} text-white text-[11px] font-bold`}>
+                    {u.name.slice(0, 1).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-emerald-500 ring-1 ring-background" />
               </div>
             </TooltipTrigger>

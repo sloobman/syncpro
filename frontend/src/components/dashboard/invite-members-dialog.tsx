@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
@@ -29,6 +29,7 @@ interface MemberItem {
   email: string;
   role: string;
   roleTitle?: string;
+  avatarUrl?: string | null;
 }
 
 export function InviteMembersDialog({
@@ -172,7 +173,7 @@ export function InviteMembersDialog({
   const isOwner = currentMember ? currentMember.role === "owner" : true;
 
   // Fallback member if list is empty
-  const displayMembers =
+  const displayMembers: MemberItem[] =
     members.length > 0
       ? members
       : [
@@ -182,6 +183,7 @@ export function InviteMembersDialog({
             email: user?.email || "user@syncpro.dev",
             role: "owner",
             roleTitle: "Владелец",
+            avatarUrl: user?.avatarUrl || null,
           },
         ];
 
@@ -271,6 +273,9 @@ export function InviteMembersDialog({
                 >
                   <div className="flex items-center gap-3 min-w-0 pr-2">
                     <Avatar className="h-8 w-8 shrink-0">
+                      {m.avatarUrl ? (
+                        <AvatarImage src={m.avatarUrl} alt={m.name} className="object-cover" />
+                      ) : null}
                       <AvatarFallback className="text-xs bg-primary/10 text-primary font-medium">
                         {m.name.slice(0, 1).toUpperCase()}
                       </AvatarFallback>
