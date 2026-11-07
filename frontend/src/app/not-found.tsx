@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { FileQuestion, Home, LayoutDashboard, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+export const metadata: Metadata = {
+  title: "Страница не найдена (404) — SyncPro",
+  description: "Запрашиваемая страница не существует или была перемещена.",
+};
 
 export default function NotFound() {
   return (

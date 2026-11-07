@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db/postgres";
 import { getRedisClient } from "@/lib/db/redis";
 import { getS3Client } from "@/lib/db/s3";
 import { ListBucketsCommand } from "@aws-sdk/client-s3";
+import { getUserFromRequest } from "@/lib/auth/jwt";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const health: Record<string, { status: "up" | "down" | "degraded"; latencyMs?: number }> = {};
 
   // 1. PostgreSQL check
@@ -56,12 +57,30 @@ export async function GET() {
 
   const isHealthy = Object.values(health).every((h) => h.status === "up");
 
+  // Check if request is authenticated admin/system or carries internal secret
+  const user = getUserFromRequest(request);
+  const internalSecret = request.headers.get("x-internal-secret");
+  const showDetails =
+    (user && (user.role === "admin" || user.role === "system")) ||
+    (Boolean(internalSecret) && internalSecret === process.env.INTERNAL_API_SECRET);
+
+  if (showDetails) {
+    return NextResponse.json(
+      {
+        status: isHealthy ? "healthy" : "degraded",
+        timestamp: new Date().toISOString(),
+        services: health,
+      },
+      { status: isHealthy ? 200 : 503 }
+    );
+  }
+
+  // Для неавторизованных или публичных запросов отдаем абстрактный ответ
   return NextResponse.json(
     {
       status: isHealthy ? "healthy" : "degraded",
       timestamp: new Date().toISOString(),
-      services: health,
     },
-    { status: isHealthy ? 200 : 207 }
+    { status: isHealthy ? 200 : 503 }
   );
 }

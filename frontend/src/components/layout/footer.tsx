@@ -105,7 +105,7 @@ export function Footer() {
             </Link>
             <span>•</span>
             <Link href="/changelog" className="inline-flex items-center min-h-[38px] py-1 hover:text-foreground transition-colors">
-              Changelog
+              История изменений
             </Link>
           </div>
         </div>
