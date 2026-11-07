@@ -1,4 +1,4 @@
-# Task 2.2: Протокол рукопожатия векторов состояний (StateVector Handshake)
+﻿# Task 2.2: Протокол рукопожатия векторов состояний (StateVector Handshake)
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-2.2`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер)
 - **Ответственная роль:** Backend / Protocol Engineer
 - **Зависимости:** [TASK-1.4](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.4-binary-codec-varint-rle/task.md), [TASK-2.1](file:///c:/Users/sloobman/syncpro/tasks/02-sync-server/task-2.1-ws-gateway-room-router/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L93-L99), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L116)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L93-L99), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L116)
 
 ---
 

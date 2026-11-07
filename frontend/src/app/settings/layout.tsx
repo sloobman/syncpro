@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { User, Shield, Bell, Palette, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -34,6 +35,7 @@ export default function SettingsLayout({
             Настройки аккаунта
           </h1>
         </div>
+        <ThemeToggle />
       </header>
 
       {/* Main settings body */}

@@ -1,4 +1,4 @@
-# Task 1.1: Базовые структуры данных CRDT (Clock, ID, BlockNode, TextNode)
+﻿# Task 1.1: Базовые структуры данных CRDT (Clock, ID, BlockNode, TextNode)
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-1.1`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер)
 - **Ответственная роль:** Systems / Algorithm Engineer (Go / Rust / TypeScript)
 - **Зависимости:** [TASK-0.1](file:///c:/Users/sloobman/syncpro/tasks/00-infrastructure-foundation/task-0.1-dev-environment/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L56-L65)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L56-L65)
 
 ---
 

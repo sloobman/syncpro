@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер)
 - **Ответственная роль:** Systems / Network Protocol Engineer
 - **Зависимости:** [TASK-1.1](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.1-clock-id-nodes/task.md), [TASK-1.2](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.2-yata-fugue-ordering/task.md), [TASK-1.3](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.3-replicated-tree-crdt/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L89-L102), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L111)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L89-L102), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L111)
 
 ---
 
@@ -24,7 +24,7 @@
 1. Реализовать низкоуровневые кодировщики и декодировщики `VarUint` / `VarInt` (LEB128).
 2. Реализовать кодировщик строковых литералов (длина в VarUint + UTF-8 байты).
 3. Реализовать RLE-компрессию непрерывных вставок от одного `ClientID`:
-   - Если пользователь ввел слово "Antigravity", генерируется не 11 отдельных структур `TextNode`, а единая запись `InsertRun { client_id, start_clock: 10, len: 11, text: "Antigravity" }`.
+   - Если пользователь ввел слово "SyncPro", генерируется не 11 отдельных структур `TextNode`, а единая запись `InsertRun { client_id, start_clock: 10, len: 11, text: "SyncPro" }`.
 4. Реализовать бинарный энкодер и декодер для:
    - `StateVector`
    - `SyncStep1` (запрос недостающих дельт)

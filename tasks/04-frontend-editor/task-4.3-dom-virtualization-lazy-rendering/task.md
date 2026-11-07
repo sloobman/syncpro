@@ -1,4 +1,4 @@
-# Task 4.3: DOM-виртуализация и ленивый рендеринг блоков для документов 500+ страниц
+﻿# Task 4.3: DOM-виртуализация и ленивый рендеринг блоков для документов 500+ страниц
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-4.3`
@@ -6,7 +6,7 @@
 - **Приоритет:** P1
 - **Ответственная роль:** Frontend / Performance Engineer (React / DOM Optimization)
 - **Зависимости:** [TASK-4.1](file:///c:/Users/sloobman/syncpro/tasks/04-frontend-editor/task-4.1-prosemirror-crdt-binding/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L12), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L131), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L185)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L12), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L131), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L185)
 
 ---
 

@@ -1,4 +1,4 @@
-# Task 5.3: Механизм разреженной синхронизации (Sparse Sync) по секциям документа
+﻿# Task 5.3: Механизм разреженной синхронизации (Sparse Sync) по секциям документа
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-5.3`
@@ -6,7 +6,7 @@
 - **Приоритет:** P2
 - **Ответственная роль:** Protocol / Systems Engineer
 - **Зависимости:** [TASK-1.3](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.3-replicated-tree-crdt/task.md), [TASK-2.2](file:///c:/Users/sloobman/syncpro/tasks/02-sync-server/task-2.2-statevector-handshake/task.md), [TASK-4.3](file:///c:/Users/sloobman/syncpro/tasks/04-frontend-editor/task-4.3-dom-virtualization-lazy-rendering/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L15), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L137)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L15), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L137)
 
 ---
 

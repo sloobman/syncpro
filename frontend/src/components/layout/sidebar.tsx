@@ -15,6 +15,7 @@ import { Logo } from "@/components/shared/logo";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { CreateWorkspaceDialog } from "@/components/dashboard/create-workspace-dialog";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { cn } from "@/lib/utils";
@@ -71,8 +72,9 @@ export function Sidebar() {
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 text-muted-foreground hidden lg:flex"
+          className="h-7 w-7 text-muted-foreground hidden lg:flex cursor-pointer"
           onClick={() => collapseSidebar(!sidebarCollapsed)}
+          title={sidebarCollapsed ? "Развернуть панель" : "Свернуть панель"}
         >
           {sidebarCollapsed ? (
             <ChevronRight className="h-4 w-4" />
@@ -88,7 +90,7 @@ export function Sidebar() {
           <Link href="/dashboard">
             <span
               className={cn(
-                "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer",
                 pathname === "/dashboard"
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -108,9 +110,16 @@ export function Sidebar() {
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Пространства
               </span>
-              <Button variant="ghost" size="icon" className="h-5 w-5">
-                <Plus className="h-3 w-3" />
-              </Button>
+              <CreateWorkspaceDialog>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
+                  title="Создать пространство"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </Button>
+              </CreateWorkspaceDialog>
             </div>
           )}
           <div className="space-y-1">
@@ -120,7 +129,7 @@ export function Sidebar() {
                 <Link key={ws.id} href={`/dashboard/workspace/${ws.id}`}>
                   <span
                     className={cn(
-                      "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                      "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer",
                       active
                         ? "bg-accent text-accent-foreground"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -150,7 +159,7 @@ export function Sidebar() {
               <Link key={doc.id} href={`/doc/${doc.id}`}>
                 <span
                   className={cn(
-                    "flex items-center gap-3 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg transition-colors",
+                    "flex items-center gap-3 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg transition-colors cursor-pointer",
                     sidebarCollapsed && "justify-center px-0"
                   )}
                 >
@@ -168,7 +177,7 @@ export function Sidebar() {
         <Link href="/settings">
           <span
             className={cn(
-              "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors",
+              "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer",
               sidebarCollapsed && "justify-center px-0"
             )}
           >
@@ -206,7 +215,7 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               onClick={handleLogout}
-              className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
               title="Выйти из аккаунта"
             >
               <LogOut className="h-3.5 w-3.5" />

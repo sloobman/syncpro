@@ -23,7 +23,7 @@ export function EditorStatusbar({
 
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
-          <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <Wifi className="h-3 w-3 text-emerald-500" />
           <span>Онлайн (CRDT Sync)</span>
         </div>
 

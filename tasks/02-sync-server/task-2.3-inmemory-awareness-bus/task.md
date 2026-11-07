@@ -1,4 +1,4 @@
-# Task 2.3: In-Memory Awareness & Ephemeral Presence Engine
+﻿# Task 2.3: In-Memory Awareness & Ephemeral Presence Engine
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-2.3`
@@ -6,7 +6,7 @@
 - **Приоритет:** P1
 - **Ответственная роль:** Backend Engineer (Go / Rust)
 - **Зависимости:** [TASK-2.1](file:///c:/Users/sloobman/syncpro/tasks/02-sync-server/task-2.1-ws-gateway-room-router/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L23), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L100-L102), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L117)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L23), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L100-L102), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L117)
 
 ---
 

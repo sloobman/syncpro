@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { FileText, GitBranch, ArrowUpRight } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 
 const mockRecent = [
   {

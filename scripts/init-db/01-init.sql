@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS workspace_members (
     PRIMARY KEY (workspace_id, user_id)
 );
 
--- 5. Core Merkle-CRDT DAG Schema (antigravity.md & task-3.2)
+-- 5. Core Merkle-CRDT DAG Schema (ARCHITECTURE.md)
 
 -- Documents Table
 CREATE TABLE IF NOT EXISTS documents (

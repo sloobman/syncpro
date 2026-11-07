@@ -1,4 +1,4 @@
-# Task 3.1: Механизм микро-коммитов и генерации SHA-256 Merkle-хешей
+﻿# Task 3.1: Механизм микро-коммитов и генерации SHA-256 Merkle-хешей
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-3.1`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер версионирования)
 - **Ответственная роль:** Backend / Core Systems Engineer
 - **Зависимости:** [TASK-1.4](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.4-binary-codec-varint-rle/task.md), [TASK-2.4](file:///c:/Users/sloobman/syncpro/tasks/02-sync-server/task-2.4-delta-buffering-persistence/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L65-L85), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L121)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L65-L85), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L121)
 
 ---
 
