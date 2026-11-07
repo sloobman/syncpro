@@ -13,12 +13,18 @@ export function getDbPool(): Pool {
         connectionTimeoutMillis: 5000,
       });
     } else {
+      if (!process.env.POSTGRES_PASSWORD) {
+        throw new Error(
+          "[SECURITY] POSTGRES_PASSWORD environment variable is not set."
+        );
+      }
+
       pool = new Pool({
         host: process.env.POSTGRES_HOST || "postgres",
         port: Number.parseInt(process.env.POSTGRES_PORT || "5432", 10),
         database: process.env.POSTGRES_DB || "syncpro_prod",
         user: process.env.POSTGRES_USER || "syncpro",
-        password: process.env.POSTGRES_PASSWORD || "syncpro_secret",
+        password: process.env.POSTGRES_PASSWORD,
         max: 20,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 5000,
@@ -26,7 +32,7 @@ export function getDbPool(): Pool {
     }
 
     pool.on("error", (err) => {
-      console.error("[PostgreSQL Pool Error]:", err);
+      console.error("[PostgreSQL Pool Error]:", err.message);
     });
   }
 
@@ -47,7 +53,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
     }
     return res;
   } catch (error) {
-    console.error(`[DB Query Error] Query: ${text}`, error);
+    console.error(`[DB Query Error] Query failed`, (error as Error).message);
     throw error;
   }
 }

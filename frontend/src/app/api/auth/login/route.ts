@@ -53,8 +53,9 @@ export async function POST(request: NextRequest) {
       role: safeUser.role,
     });
 
+    // Return user info without token in body — token is only in HTTP-only cookie
     const response = NextResponse.json(
-      { user: safeUser, token },
+      { user: safeUser },
       { status: 200 }
     );
 
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("[API Auth Login Error]:", error);
+    console.error("[API Auth Login Error]:", (error as Error).message);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера при входе" },
       { status: 500 }
