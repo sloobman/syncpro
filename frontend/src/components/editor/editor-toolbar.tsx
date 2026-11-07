@@ -18,6 +18,7 @@ import {
   Table,
   Undo2,
   Redo2,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -25,9 +26,22 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 export interface EditorToolbarProps {
   onAction?: (action: string) => void;
+  disabled?: boolean;
 }
 
-export function EditorToolbar({ onAction }: EditorToolbarProps) {
+export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps) {
+  if (disabled) {
+    return (
+      <div className="h-10 border-b border-border bg-muted/40 backdrop-blur-md px-4 flex items-center justify-between text-xs text-muted-foreground select-none z-10">
+        <div className="flex items-center gap-2">
+          <Eye className="h-4 w-4 text-primary shrink-0" />
+          <span className="font-medium text-foreground">Режим только для чтения</span>
+          <span className="hidden sm:inline">— у вас роль «Читатель». Редактирование текста и структуры документа отключено.</span>
+        </div>
+      </div>
+    );
+  }
+
   const trigger = (action: string) => {
     if (onAction) {
       onAction(action);
@@ -69,7 +83,52 @@ export function EditorToolbar({ onAction }: EditorToolbarProps) {
 
         <Separator orientation="vertical" className="h-4 mx-1" />
 
-        {/* Text styling */}
+        {/* Headings */}
+        <div className="flex items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => trigger("h1")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Heading1 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Заголовок 1</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => trigger("h2")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Heading2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Заголовок 2</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => trigger("h3")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Heading3 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Заголовок 3</TooltipContent>
+          </Tooltip>
+        </div>
+
+        <Separator orientation="vertical" className="h-4 mx-1" />
+
+        {/* Text formatting */}
         <div className="flex items-center">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -82,7 +141,7 @@ export function EditorToolbar({ onAction }: EditorToolbarProps) {
                 <Bold className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Полужирный (Cmd+B)</TooltipContent>
+            <TooltipContent>Жирный (Cmd+B)</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -108,7 +167,7 @@ export function EditorToolbar({ onAction }: EditorToolbarProps) {
                 <Underline className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Подчеркнутый (Cmd+U)</TooltipContent>
+            <TooltipContent>Подчёркнутый (Cmd+U)</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -121,58 +180,13 @@ export function EditorToolbar({ onAction }: EditorToolbarProps) {
                 <Strikethrough className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Зачеркнутый</TooltipContent>
+            <TooltipContent>Зачёркнутый</TooltipContent>
           </Tooltip>
         </div>
 
         <Separator orientation="vertical" className="h-4 mx-1" />
 
-        {/* Headings */}
-        <div className="flex items-center">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => trigger("h1")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <Heading1 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Заголовок H1</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => trigger("h2")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <Heading2 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Заголовок H2</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => trigger("h3")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <Heading3 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Заголовок H3</TooltipContent>
-          </Tooltip>
-        </div>
-
-        <Separator orientation="vertical" className="h-4 mx-1" />
-
-        {/* Lists */}
+        {/* Lists & Tasks */}
         <div className="flex items-center">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -211,13 +225,13 @@ export function EditorToolbar({ onAction }: EditorToolbarProps) {
                 <ListTodo className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Чек-лист задач</TooltipContent>
+            <TooltipContent>Список задач</TooltipContent>
           </Tooltip>
         </div>
 
         <Separator orientation="vertical" className="h-4 mx-1" />
 
-        {/* Blocks & Media */}
+        {/* Blocks & Rich items */}
         <div className="flex items-center">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -250,6 +264,25 @@ export function EditorToolbar({ onAction }: EditorToolbarProps) {
               <Button
                 variant="ghost"
                 size="icon"
+                onClick={() => trigger("table")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Table className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Таблица</TooltipContent>
+          </Tooltip>
+        </div>
+
+        <Separator orientation="vertical" className="h-4 mx-1" />
+
+        {/* Media / Links */}
+        <div className="flex items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => trigger("link")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
@@ -270,19 +303,6 @@ export function EditorToolbar({ onAction }: EditorToolbarProps) {
               </Button>
             </TooltipTrigger>
             <TooltipContent>Изображение</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => trigger("table")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <Table className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Таблица</TooltipContent>
           </Tooltip>
         </div>
       </div>

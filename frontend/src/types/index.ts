@@ -27,6 +27,7 @@ export interface Workspace {
   description: string | null;
   iconEmoji: string | null;
   ownerId?: string;
+  currentUserRole?: MemberRole;
   plan?: string;
   memberCount: number;
   documentCount: number;
@@ -48,6 +49,8 @@ export interface Document {
   title: string;
   defaultBranch: string;
   createdBy: string;
+  currentUserRole?: MemberRole;
+  canEdit?: boolean;
   wordCount: number;
   isFavorite: boolean;
   isArchived: boolean;

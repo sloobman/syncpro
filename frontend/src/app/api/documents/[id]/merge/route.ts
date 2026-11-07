@@ -3,6 +3,7 @@ import { computeCommitHash } from "@/lib/merkle-dag/hash";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { MerkleDAGRepository } from "@/lib/db/dag-repository";
 import { getUserFromRequest } from "@/lib/auth/jwt";
+import { WorkspaceRepository } from "@/lib/db/workspace-repository";
 
 export async function POST(
   request: NextRequest,
@@ -14,6 +15,15 @@ export async function POST(
   }
 
   const { id } = await params;
+
+  const canEdit = await WorkspaceRepository.canUserEditDocument(id, user.id);
+  if (!canEdit) {
+    return NextResponse.json(
+      { error: "Доступ запрещен. У вас права только на чтение (Читатель)" },
+      { status: 403 }
+    );
+  }
+
   const body = await request.json();
   const { sourceBranch, targetBranch, baseCommitId, sourceCommitId, targetCommitId } = body;
 

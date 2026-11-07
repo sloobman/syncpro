@@ -4,6 +4,7 @@ import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { MerkleDAGRepository } from "@/lib/db/dag-repository";
 import { putS3Object, BUCKET_COMMITS } from "@/lib/db/s3";
 import { getUserFromRequest } from "@/lib/auth/jwt";
+import { WorkspaceRepository } from "@/lib/db/workspace-repository";
 
 function getFallbackCommits(documentId: string): MerkleCommit[] {
   return [
@@ -38,6 +39,14 @@ export async function GET(
 
   const { id } = await params;
 
+  const doc = await WorkspaceRepository.getDocumentById(id, user.id);
+  if (!doc) {
+    return NextResponse.json(
+      { error: "Документ не найден или доступ ограничен" },
+      { status: 403 }
+    );
+  }
+
   try {
     const commits = await MerkleDAGRepository.getCommitsByDocument(id);
     if (commits.length > 0) {
@@ -68,6 +77,15 @@ export async function POST(
   }
 
   const { id } = await params;
+
+  const canEdit = await WorkspaceRepository.canUserEditDocument(id, user.id);
+  if (!canEdit) {
+    return NextResponse.json(
+      { error: "Доступ запрещен. У вас права только на чтение (Читатель)" },
+      { status: 403 }
+    );
+  }
+
   const body = await request.json();
   const { parents, stateVector, message, branch, deltaBytesBase64, deltaSha256 } = body;
 

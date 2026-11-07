@@ -38,6 +38,16 @@ export async function PATCH(
     }
 
     const { id } = await params;
+
+    // Strict edit permission check
+    const canEdit = await WorkspaceRepository.canUserEditDocument(id, user.id);
+    if (!canEdit) {
+      return NextResponse.json(
+        { error: "Доступ запрещен. У вас права только на чтение (Читатель)" },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const { title, content } = body;
 
@@ -48,13 +58,10 @@ export async function PATCH(
     );
 
     if (!success) {
-      // If document doesn't exist in DB yet, create it under user's workspace
-      await WorkspaceRepository.createDocument({
-        id,
-        title: title || "Безымянный документ",
-        content: content || "",
-        createdBy: user.id,
-      });
+      return NextResponse.json(
+        { error: "Не удалось обновить документ" },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({ success: true });

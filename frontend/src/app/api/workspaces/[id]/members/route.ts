@@ -50,7 +50,7 @@ export async function POST(
     const result = await WorkspaceRepository.inviteMember({
       workspaceId: id,
       email: email.trim().toLowerCase(),
-      role: role || "editor",
+      role: role || "viewer",
       inviterId: user.id,
     });
 
@@ -62,5 +62,43 @@ export async function POST(
   } catch (err) {
     console.error("[API Workspace Members POST Error]:", err);
     return NextResponse.json({ error: "Ошибка при отправке приглашения" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+    }
+
+    const { id } = await params;
+    const body = await request.json();
+    const { userId } = body;
+
+    if (!userId || typeof userId !== "string") {
+      return NextResponse.json(
+        { error: "Укажите идентификатор пользователя для удаления" },
+        { status: 400 }
+      );
+    }
+
+    const result = await WorkspaceRepository.removeMember({
+      workspaceId: id,
+      targetUserId: userId,
+      requesterId: user.id,
+    });
+
+    if (!result.success) {
+      return NextResponse.json({ error: result.message }, { status: 403 });
+    }
+
+    return NextResponse.json(result, { status: 200 });
+  } catch (err) {
+    console.error("[API Workspace Members DELETE Error]:", err);
+    return NextResponse.json({ error: "Ошибка при удалении участника" }, { status: 500 });
   }
 }
