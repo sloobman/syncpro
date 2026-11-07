@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { Plus } from "lucide-react";
 import { WorkspaceCard } from "@/components/dashboard/workspace-card";
 import { RecentDocuments } from "@/components/dashboard/recent-documents";
@@ -8,6 +9,11 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 export default function DashboardPage() {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const fetchWorkspaces = useWorkspaceStore((state) => state.fetchWorkspaces);
+
+  useEffect(() => {
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
 
   return (
     <div className="space-y-8 pb-10">
@@ -18,7 +24,7 @@ export default function DashboardPage() {
             Рабочие пространства
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Выберите рабочую область или создайте новую для командной работы
+            Ваши изолированные проекты и пространства совместной работы
           </p>
         </div>
         <CreateWorkspaceDialog />

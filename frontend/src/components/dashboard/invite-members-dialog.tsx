@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { UserPlus, Copy, Check, CheckCircle2 } from "lucide-react";
+import { useState, useCallback } from "react";
+import { UserPlus, Copy, Check, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -30,14 +30,11 @@ interface MemberItem {
   role: string;
 }
 
-const defaultTeamMembers: MemberItem[] = [
-  { id: "u2", name: "Алиса Смирнова", email: "alice@syncpro.dev", role: "Редактор" },
-  { id: "u3", name: "Константин Козлов", email: "konstantin@syncpro.dev", role: "Редактор" },
-];
-
 export function InviteMembersDialog({
+  workspaceId,
   children,
 }: {
+  workspaceId?: string;
   children?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -45,55 +42,100 @@ export function InviteMembersDialog({
   const [role, setRole] = useState("editor");
   const [copied, setCopied] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
-  const [extraMembers, setExtraMembers] = useState<MemberItem[]>([]);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [members, setMembers] = useState<MemberItem[]>([]);
   const { user } = useAuthStore();
 
+  const loadMembers = useCallback(async () => {
+    if (!workspaceId) return;
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/members`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMembers(data.members || []);
+      }
+    } catch {
+      // offline
+    }
+  }, [workspaceId]);
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (newOpen && workspaceId) {
+      loadMembers();
+    }
+  };
+
   const handleCopyLink = () => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "https://syncpro.dev";
-    navigator.clipboard.writeText(`${origin}/invite/my-project`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (typeof window !== "undefined") {
+      const url = workspaceId
+        ? `${window.location.origin}/dashboard/workspace/${workspaceId}`
+        : window.location.href;
+      navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
-  const roleLabelMap: Record<string, string> = {
-    editor: "Редактор",
-    commenter: "Комментатор",
-    viewer: "Читатель",
-  };
-
-  const handleInviteSubmit = (e: React.FormEvent) => {
+  const handleInviteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return;
+    if (!email.trim() || loading || !workspaceId) return;
 
-    const newMember: MemberItem = {
-      id: `m_${Date.now()}`,
-      name: email.split("@")[0],
-      email: email.trim().toLowerCase(),
-      role: roleLabelMap[role] || "Редактор",
-    };
+    setLoading(true);
+    setInviteError(null);
+    setInviteSuccess(null);
 
-    setExtraMembers((prev) => [newMember, ...prev]);
-    setInviteSuccess(`Приглашение отправлено на ${email.trim()}`);
-    setEmail("");
-    setTimeout(() => setInviteSuccess(null), 3000);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          role,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Не удалось отправить приглашение");
+      }
+
+      setInviteSuccess(data.message || `Приглашение отправлено на ${email.trim()}`);
+      setEmail("");
+      loadMembers();
+      setTimeout(() => setInviteSuccess(null), 5000);
+    } catch (err: unknown) {
+      setInviteError(err instanceof Error ? err.message : "Ошибка при отправке приглашения");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const currentMember: MemberItem = {
-    id: user?.id || "me",
-    name: user?.name ? `${user.name} (Вы)` : "Вы",
-    email: user?.email || "user@syncpro.dev",
-    role: "Владелец",
-  };
-
-  const allMembers = [currentMember, ...extraMembers, ...defaultTeamMembers];
+  // Fallback member if list is empty
+  const displayMembers =
+    members.length > 0
+      ? members
+      : [
+          {
+            id: user?.id || "me",
+            name: user?.name ? `${user.name} (Вы)` : "Вы",
+            email: user?.email || "user@syncpro.dev",
+            role: "Владелец",
+          },
+        ];
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {children || (
           <Button variant="outline" className="gap-2 text-xs h-9 cursor-pointer">
             <UserPlus className="h-4 w-4" />
-            Участники ({allMembers.length})
+            Участники ({displayMembers.length})
           </Button>
         )}
       </DialogTrigger>
@@ -101,16 +143,23 @@ export function InviteMembersDialog({
         <DialogHeader>
           <DialogTitle>Участники пространства</DialogTitle>
           <DialogDescription>
-            Приглашайте команду и настраивайте права доступа в реальном времени
+            Совместный доступ предоставляется только приглашенным пользователям
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5 py-3">
-          {/* Success notice */}
+          {/* Notifications */}
           {inviteSuccess && (
-            <div className="flex items-center gap-2 p-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>{inviteSuccess}</span>
+            </div>
+          )}
+
+          {inviteError && (
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-medium">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{inviteError}</span>
             </div>
           )}
 
@@ -134,18 +183,22 @@ export function InviteMembersDialog({
                 <SelectItem value="viewer">Читатель</SelectItem>
               </SelectContent>
             </Select>
-            <Button type="submit" disabled={!email.trim()} className="text-xs shrink-0 cursor-pointer">
-              Пригласить
+            <Button
+              type="submit"
+              disabled={loading || !email.trim() || !workspaceId}
+              className="text-xs shrink-0 cursor-pointer"
+            >
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Пригласить"}
             </Button>
           </form>
 
           {/* Members list */}
           <div className="space-y-2.5">
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-              В пространстве ({allMembers.length})
+              В пространстве ({displayMembers.length})
             </p>
             <div className="divide-y divide-border border rounded-xl overflow-hidden max-h-60 overflow-y-auto">
-              {allMembers.map((m) => (
+              {displayMembers.map((m) => (
                 <div
                   key={m.id}
                   className="flex items-center justify-between p-3 bg-card hover:bg-muted/30 transition-colors"
@@ -158,18 +211,14 @@ export function InviteMembersDialog({
                     </Avatar>
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-foreground truncate">
-                        {m.name}
+                        {m.name} {m.email === user?.email ? "(Вы)" : ""}
                       </p>
-                      <p className="text-[11px] text-muted-foreground truncate">
-                        {m.email}
-                      </p>
+                      <p className="text-[11px] text-muted-foreground truncate">{m.email}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 pl-2">
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted font-medium text-muted-foreground">
-                      {m.role}
-                    </span>
-                  </div>
+                  <span className="text-[11px] font-medium text-muted-foreground px-2 py-0.5 rounded bg-muted shrink-0">
+                    {m.role}
+                  </span>
                 </div>
               ))}
             </div>
@@ -177,32 +226,43 @@ export function InviteMembersDialog({
 
           <Separator />
 
-          {/* Share link */}
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-foreground">
-              Ссылка для быстрого присоединения
+          {/* Copy invite link */}
+          <div className="space-y-2">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              Ссылка на рабочее пространство
             </p>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <Input
                 readOnly
-                value={typeof window !== "undefined" ? `${window.location.origin}/invite/my-project` : "https://syncpro.dev/invite/my-project"}
+                value={
+                  typeof window !== "undefined" && workspaceId
+                    ? `${window.location.origin}/dashboard/workspace/${workspaceId}`
+                    : ""
+                }
                 className="text-xs font-mono bg-muted/40"
               />
               <Button
                 type="button"
                 variant="outline"
-                size="icon"
                 onClick={handleCopyLink}
-                className="shrink-0 cursor-pointer"
-                title="Скопировать ссылку"
+                className="text-xs shrink-0 gap-1.5 cursor-pointer"
               >
                 {copied ? (
-                  <Check className="h-4 w-4 text-emerald-500" />
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    Скопировано
+                  </>
                 ) : (
-                  <Copy className="h-4 w-4" />
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    Копировать
+                  </>
                 )}
               </Button>
             </div>
+            <p className="text-[11px] text-muted-foreground">
+              Доступ по ссылке будет открыт только тем пользователям, которых вы добавили в список выше.
+            </p>
           </div>
         </div>
       </DialogContent>

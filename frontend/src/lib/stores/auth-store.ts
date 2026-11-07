@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { User } from "@/types";
+import { useWorkspaceStore } from "./workspace-store";
 
 interface AuthState {
   user: User | null;
@@ -9,13 +10,16 @@ interface AuthState {
 }
 
 interface AuthActions {
-  login: (email: string, password?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   register: (data: {
     name: string;
     email: string;
-    password?: string;
+    password: string;
   }) => Promise<void>;
-  loginOAuth: (provider: "google" | "github", profile?: { name?: string; email?: string }) => Promise<void>;
+  loginOAuth: (
+    provider: "google" | "github",
+    profile?: { name?: string; email?: string }
+  ) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (user: User) => void;
   updateProfile: (data: Partial<User>) => void;
@@ -32,7 +36,7 @@ export const useAuthStore = create<AuthStore>()(
       isAuthenticated: false,
       isLoading: false,
 
-      login: async (email: string, password?: string) => {
+      login: async (email, password) => {
         set({ isLoading: true });
         try {
           const res = await fetch("/api/auth/login", {
@@ -52,6 +56,9 @@ export const useAuthStore = create<AuthStore>()(
             isAuthenticated: true,
             isLoading: false,
           });
+
+          // Load current user's workspaces
+          useWorkspaceStore.getState().fetchWorkspaces();
         } catch (error) {
           set({ isLoading: false });
           throw error;
@@ -78,6 +85,9 @@ export const useAuthStore = create<AuthStore>()(
             isAuthenticated: true,
             isLoading: false,
           });
+
+          // Load new user's workspaces
+          useWorkspaceStore.getState().fetchWorkspaces();
         } catch (error) {
           set({ isLoading: false });
           throw error;
@@ -111,6 +121,8 @@ export const useAuthStore = create<AuthStore>()(
             isAuthenticated: true,
             isLoading: false,
           });
+
+          useWorkspaceStore.getState().fetchWorkspaces();
         } catch (error) {
           set({ isLoading: false });
           throw error;
@@ -128,14 +140,19 @@ export const useAuthStore = create<AuthStore>()(
             isAuthenticated: false,
             isLoading: false,
           });
+          useWorkspaceStore.getState().reset();
           if (typeof window !== "undefined") {
             localStorage.removeItem("syncpro-auth");
+            localStorage.removeItem("syncpro_workspace_storage");
           }
         }
       },
 
       setUser: (user: User) => {
         set({ user, isAuthenticated: !!user });
+        if (user) {
+          useWorkspaceStore.getState().fetchWorkspaces();
+        }
       },
 
       updateProfile: (data: Partial<User>) => {
@@ -166,11 +183,14 @@ export const useAuthStore = create<AuthStore>()(
             const data = await res.json();
             if (data.user) {
               set({ user: data.user, isAuthenticated: true });
+              useWorkspaceStore.getState().fetchWorkspaces();
             }
           } else if (res.status === 401) {
             set({ user: null, isAuthenticated: false });
+            useWorkspaceStore.getState().reset();
             if (typeof window !== "undefined") {
               localStorage.removeItem("syncpro-auth");
+              localStorage.removeItem("syncpro_workspace_storage");
             }
           }
         } catch {

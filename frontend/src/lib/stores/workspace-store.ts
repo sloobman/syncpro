@@ -16,10 +16,13 @@ interface WorkspaceState {
   documents: Document[];
   documentContents: Record<string, DocumentContentRecord>;
   isLoading: boolean;
+  initialized: boolean;
 }
 
 interface WorkspaceActions {
   setCurrentWorkspaceId: (id: string) => void;
+  fetchWorkspaces: () => Promise<void>;
+  fetchWorkspaceDocuments: (workspaceId: string) => Promise<Document[]>;
   createWorkspace: (params: {
     name: string;
     description?: string;
@@ -38,101 +41,10 @@ interface WorkspaceActions {
   getDocumentById: (id: string) => Document | undefined;
   getWorkspaceById: (id: string) => Workspace | undefined;
   getWorkspaceDocuments: (workspaceId: string) => Document[];
+  reset: () => void;
 }
 
 export type WorkspaceStore = WorkspaceState & WorkspaceActions;
-
-const DEFAULT_WORKSPACES: Workspace[] = [
-  {
-    id: "ws_1",
-    name: "Мой проект",
-    slug: "my-project",
-    description: "Основное рабочее пространство для документации",
-    iconEmoji: "🚀",
-    ownerId: "usr_1",
-    plan: "free",
-    memberCount: 3,
-    documentCount: 4,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date(Date.now() - 7200000).toISOString(),
-  },
-  {
-    id: "ws_2",
-    name: "Команда разработки",
-    slug: "dev-team",
-    description: "Инженерная база знаний и архитектурные решения",
-    iconEmoji: "⚡",
-    ownerId: "usr_1",
-    plan: "pro",
-    memberCount: 12,
-    documentCount: 0,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-];
-
-const DEFAULT_DOCUMENTS: Document[] = [
-  {
-    id: "doc_1",
-    workspaceId: "ws_1",
-    title: "Глава 1: Введение в системы совместного редактирования",
-    defaultBranch: "main",
-    createdBy: "usr_1",
-    wordCount: 2450,
-    isFavorite: true,
-    isArchived: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date(Date.now() - 7200000).toISOString(),
-  },
-  {
-    id: "doc_2",
-    workspaceId: "ws_1",
-    title: "Архитектура и сетевой протокол Merkle-CRDT",
-    defaultBranch: "feature/dag-sync",
-    createdBy: "usr_2",
-    wordCount: 5120,
-    isFavorite: false,
-    isArchived: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-  {
-    id: "doc_3",
-    workspaceId: "ws_1",
-    title: "Roadmap Q4 2026: фазирование релизов",
-    defaultBranch: "main",
-    createdBy: "usr_1",
-    wordCount: 1340,
-    isFavorite: true,
-    isArchived: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date(Date.now() - 259200000).toISOString(),
-  },
-  {
-    id: "doc_4",
-    workspaceId: "ws_1",
-    title: "Протокол синхронизации состояния StateVector Handshake",
-    defaultBranch: "main",
-    createdBy: "usr_3",
-    wordCount: 3890,
-    isFavorite: false,
-    isArchived: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date(Date.now() - 432000000).toISOString(),
-  },
-];
-
-const INITIAL_DOC_1_CONTENT = `# Глава 1: Введение в системы совместного редактирования
-
-Совместное редактирование документов в реальном времени является одной из ключевых технологических задач современных распределённых систем. В отличие от традиционных централизованных блокировок, современные архитектуры опираются на бессерверную или гибридную репликацию данных без централизованного арбитра разрешения конфликтов.
-
-## 1.1. Архитектурный стиль Merkle-CRDT
-
-Платформа SyncPro совмещает математическое ядро Conflict-free Replicated Data Types (CRDT) на базе алгоритмов YATA и Fugue с графом контроля версий Merkle-DAG. Каждый символ и блок текста идентифицируются неизменяемым кортежем из идентификатора клиента и логических часов Лампорта.
-
-## 1.2. Локальная автономность и синхронизация
-
-Все операции над текстом применяются немедленно в локальном дереве блоков с нулевой задержкой ввода, после чего асинхронно распространяются по сети через WebSocket. При разрыве соединения редактор сохраняет полную работоспособность, синхронизируя накопившиеся изменения при восстановлении связи.`;
 
 function getTemplateContent(template?: string, title?: string): string {
   const docTitle = title || "Новый документ";
@@ -202,61 +114,111 @@ function getTemplateContent(template?: string, title?: string): string {
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
     (set, get) => ({
-      currentWorkspaceId: "ws_1",
-      workspaces: DEFAULT_WORKSPACES,
-      documents: DEFAULT_DOCUMENTS,
-      documentContents: {
-        doc_1: {
-          title: "Глава 1: Введение в системы совместного редактирования",
-          content: INITIAL_DOC_1_CONTENT,
-          wordCount: 2450,
-          charCount: 14380,
-          updatedAt: new Date().toISOString(),
-        },
-      },
+      currentWorkspaceId: "",
+      workspaces: [],
+      documents: [],
+      documentContents: {},
       isLoading: false,
+      initialized: false,
 
       setCurrentWorkspaceId: (id: string) => {
         set({ currentWorkspaceId: id });
       },
 
-      createWorkspace: async (params) => {
-        const id = `ws_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const now = new Date().toISOString();
-        const newWs: Workspace = {
-          id,
-          name: params.name.trim(),
-          slug: params.name.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, "-"),
-          description: params.description?.trim() || null,
-          iconEmoji: params.iconEmoji || "📁",
-          ownerId: "usr_current",
-          plan: "free",
-          memberCount: 1,
-          documentCount: 0,
-          createdAt: now,
-          updatedAt: now,
-        };
-
-        set((state) => ({
-          workspaces: [newWs, ...state.workspaces],
-          currentWorkspaceId: id,
-        }));
-
-        // Try background server sync if online
+      fetchWorkspaces: async () => {
+        set({ isLoading: true });
         try {
-          fetch("/api/workspaces", {
+          const res = await fetch("/api/workspaces", { credentials: "include" });
+          if (res.ok) {
+            const data = await res.json();
+            const list: Workspace[] = data.workspaces || [];
+            const currId =
+              list.length > 0
+                ? get().currentWorkspaceId && list.some((w) => w.id === get().currentWorkspaceId)
+                  ? get().currentWorkspaceId
+                  : list[0].id
+                : "";
+            set({
+              workspaces: list,
+              currentWorkspaceId: currId,
+              initialized: true,
+              isLoading: false,
+            });
+            if (currId) {
+              get().fetchWorkspaceDocuments(currId);
+            }
+            return;
+          }
+        } catch {
+          // offline
+        }
+        set({ isLoading: false, initialized: true });
+      },
+
+      fetchWorkspaceDocuments: async (workspaceId: string) => {
+        try {
+          const res = await fetch(`/api/workspaces/${workspaceId}/documents`, { credentials: "include" });
+          if (res.ok) {
+            const data = await res.json();
+            const fetchedDocs: Document[] = data.documents || [];
+            set((state) => {
+              // Merge with other workspaces documents
+              const otherDocs = state.documents.filter((d) => d.workspaceId !== workspaceId);
+              return { documents: [...fetchedDocs, ...otherDocs] };
+            });
+            return fetchedDocs;
+          }
+        } catch {
+          // offline
+        }
+        return get().documents.filter((d) => d.workspaceId === workspaceId);
+      },
+
+      createWorkspace: async (params) => {
+        set({ isLoading: true });
+        let newWs: Workspace;
+
+        try {
+          const res = await fetch("/api/workspaces", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({
-              id,
-              name: newWs.name,
-              description: newWs.description,
-              iconEmoji: newWs.iconEmoji,
+              name: params.name.trim(),
+              description: params.description?.trim() || "",
+              iconEmoji: params.iconEmoji || "📁",
             }),
-          }).catch(() => {});
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            newWs = data.workspace;
+          } else {
+            throw new Error("Server workspace creation failed");
+          }
         } catch {
-          // ignore
+          // Fallback local ID
+          const id = `ws_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          const now = new Date().toISOString();
+          newWs = {
+            id,
+            name: params.name.trim(),
+            slug: params.name.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, "-"),
+            description: params.description?.trim() || null,
+            iconEmoji: params.iconEmoji || "📁",
+            ownerId: "current_user",
+            memberCount: 1,
+            documentCount: 0,
+            createdAt: now,
+            updatedAt: now,
+          };
         }
+
+        set((state) => ({
+          workspaces: [newWs, ...state.workspaces.filter((w) => w.id !== newWs.id)],
+          currentWorkspaceId: newWs.id,
+          isLoading: false,
+        }));
 
         return newWs;
       },
@@ -267,31 +229,53 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           documents: state.documents.filter((d) => d.workspaceId !== id),
           currentWorkspaceId:
             state.currentWorkspaceId === id
-              ? state.workspaces.find((w) => w.id !== id)?.id || "ws_1"
+              ? state.workspaces.find((w) => w.id !== id)?.id || ""
               : state.currentWorkspaceId,
         }));
       },
 
       createDocument: async (params) => {
-        const targetWsId = params.workspaceId || get().currentWorkspaceId || "ws_1";
-        const id = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const targetWsId = params.workspaceId || get().currentWorkspaceId;
         const now = new Date().toISOString();
         const docTitle = params.title.trim() || "Новый документ";
         const initialText = getTemplateContent(params.template, docTitle);
         const wordCount = initialText.split(/\s+/).filter(Boolean).length;
 
-        const newDoc: Document = {
-          id,
-          workspaceId: targetWsId,
-          title: docTitle,
-          defaultBranch: "main",
-          createdBy: "usr_current",
-          wordCount,
-          isFavorite: false,
-          isArchived: false,
-          createdAt: now,
-          updatedAt: now,
-        };
+        let newDoc: Document;
+
+        try {
+          const res = await fetch("/api/documents", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              workspaceId: targetWsId,
+              title: docTitle,
+              content: initialText,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            newDoc = data.document;
+          } else {
+            throw new Error("Server document creation failed");
+          }
+        } catch {
+          const id = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          newDoc = {
+            id,
+            workspaceId: targetWsId,
+            title: docTitle,
+            defaultBranch: "main",
+            createdBy: "current_user",
+            wordCount,
+            isFavorite: false,
+            isArchived: false,
+            createdAt: now,
+            updatedAt: now,
+          };
+        }
 
         set((state) => {
           const updatedWorkspaces = state.workspaces.map((w) =>
@@ -301,11 +285,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           );
 
           return {
-            documents: [newDoc, ...state.documents],
+            documents: [newDoc, ...state.documents.filter((d) => d.id !== newDoc.id)],
             workspaces: updatedWorkspaces,
             documentContents: {
               ...state.documentContents,
-              [id]: {
+              [newDoc.id]: {
                 title: docTitle,
                 content: initialText,
                 wordCount,
@@ -315,22 +299,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             },
           };
         });
-
-        // Background server sync
-        try {
-          fetch("/api/documents", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id,
-              workspaceId: targetWsId,
-              title: docTitle,
-              content: initialText,
-            }),
-          }).catch(() => {});
-        } catch {
-          // ignore
-        }
 
         return newDoc;
       },
@@ -354,17 +322,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               : state.documentContents,
         }));
 
-        // Background server sync if title changed
         if (updates.title) {
-          try {
-            fetch(`/api/documents/${id}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ title: updates.title }),
-            }).catch(() => {});
-          } catch {
-            // ignore
-          }
+          fetch(`/api/documents/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ title: updates.title }),
+          }).catch(() => {});
         }
       },
 
@@ -403,10 +367,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             : [
                 {
                   id,
-                  workspaceId: state.currentWorkspaceId || "ws_1",
+                  workspaceId: state.currentWorkspaceId,
                   title: docTitle,
                   defaultBranch: "main",
-                  createdBy: "usr_current",
+                  createdBy: "current_user",
                   wordCount,
                   isFavorite: false,
                   isArchived: false,
@@ -432,22 +396,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         });
 
         // Background server persistence
-        try {
-          fetch(`/api/documents/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, content }),
-          }).catch(() => {});
-        } catch {
-          // ignore
-        }
+        fetch(`/api/documents/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ title, content }),
+        }).catch(() => {});
       },
 
       getDocumentContent: (id: string) => {
         const record = get().documentContents[id];
-        if (record) return record.content;
-        if (id === "doc_1") return INITIAL_DOC_1_CONTENT;
-        return "";
+        return record ? record.content : "";
       },
 
       getDocumentById: (id: string) => {
@@ -460,6 +419,20 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
       getWorkspaceDocuments: (workspaceId: string) => {
         return get().documents.filter((d) => d.workspaceId === workspaceId && !d.isArchived);
+      },
+
+      reset: () => {
+        set({
+          currentWorkspaceId: "",
+          workspaces: [],
+          documents: [],
+          documentContents: {},
+          isLoading: false,
+          initialized: false,
+        });
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("syncpro_workspace_storage");
+        }
       },
     }),
     {

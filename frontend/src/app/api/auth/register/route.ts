@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { UserRepository } from "@/lib/auth/user-repository";
 import { hashPassword } from "@/lib/auth/password";
 import { signToken } from "@/lib/auth/jwt";
+import { WorkspaceRepository } from "@/lib/db/workspace-repository";
 
 // Server-side email validation regex (RFC 5322 simplified)
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -72,6 +73,16 @@ export async function POST(request: NextRequest) {
       passwordHash,
       role: "user",
     });
+
+    // Claim any pending invitations for this email or create personal workspace
+    try {
+      const claimed = await WorkspaceRepository.claimPendingInvitations(safeUser.id, safeUser.email);
+      if (claimed === 0) {
+        await WorkspaceRepository.createDefaultWorkspaceForUser(safeUser.id, safeUser.name);
+      }
+    } catch (wsErr) {
+      console.error("[Workspace auto-creation error]:", wsErr);
+    }
 
     // Generate JWT
     const token = signToken({
