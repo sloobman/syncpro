@@ -1,4 +1,4 @@
-# Task 2.1: WebSocket-шлюз с поддержкой Sticky-маршрутизации комнат
+﻿# Task 2.1: WebSocket-шлюз с поддержкой Sticky-маршрутизации комнат
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-2.1`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер сетевого слоя)
 - **Ответственная роль:** Backend / Distributed Systems Engineer (Go / Rust)
 - **Зависимости:** [TASK-1.4](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.4-binary-codec-varint-rle/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L23), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L33-L37), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L115)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L23), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L33-L37), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L115)
 
 ---
 

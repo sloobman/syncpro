@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Moon, Sun, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,77 +9,57 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-type Theme = "light" | "dark" | "system";
-
-function resolveTheme(theme: Theme): "light" | "dark" {
-  if (theme !== "system") return theme;
-  if (typeof window === "undefined") return "light";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-}
-
-function applyTheme(theme: Theme) {
-  const resolved = resolveTheme(theme);
-  document.documentElement.classList.toggle("dark", resolved === "dark");
-}
+import { useUIStore, type Theme } from "@/lib/stores/ui-store";
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>("system");
+  const { theme, setTheme } = useUIStore();
 
   useEffect(() => {
-    const stored = localStorage.getItem("syncpro-theme") as Theme | null;
-    const initial = stored ?? "system";
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setTheme(initial);
-    applyTheme(initial);
+    const isDark =
+      theme === "dark" ||
+      (theme === "system" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.classList.toggle("dark", isDark);
 
     const mql = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => {
       const current = localStorage.getItem("syncpro-theme") as Theme | null;
       if (!current || current === "system") {
-        applyTheme("system");
+        document.documentElement.classList.toggle("dark", mql.matches);
       }
     };
     mql.addEventListener("change", handler);
     return () => mql.removeEventListener("change", handler);
-  }, []);
-
-  const changeTheme = useCallback((next: Theme) => {
-    setTheme(next);
-    localStorage.setItem("syncpro-theme", next);
-    applyTheme(next);
-  }, []);
+  }, [theme]);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Переключить тему">
+        <Button variant="ghost" size="icon" aria-label="Переключить тему" className="h-9 w-9 text-muted-foreground hover:text-foreground">
           <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
           <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem
-          onClick={() => changeTheme("light")}
-          className={theme === "light" ? "bg-accent" : ""}
+          onClick={() => setTheme("light")}
+          className={theme === "light" ? "bg-accent font-medium" : "cursor-pointer"}
         >
-          <Sun className="mr-2 h-4 w-4" />
+          <Sun className="mr-2 h-4 w-4 text-amber-500" />
           Светлая
         </DropdownMenuItem>
         <DropdownMenuItem
-          onClick={() => changeTheme("dark")}
-          className={theme === "dark" ? "bg-accent" : ""}
+          onClick={() => setTheme("dark")}
+          className={theme === "dark" ? "bg-accent font-medium" : "cursor-pointer"}
         >
-          <Moon className="mr-2 h-4 w-4" />
+          <Moon className="mr-2 h-4 w-4 text-blue-500" />
           Тёмная
         </DropdownMenuItem>
         <DropdownMenuItem
-          onClick={() => changeTheme("system")}
-          className={theme === "system" ? "bg-accent" : ""}
+          onClick={() => setTheme("system")}
+          className={theme === "system" ? "bg-accent font-medium" : "cursor-pointer"}
         >
-          <Monitor className="mr-2 h-4 w-4" />
+          <Monitor className="mr-2 h-4 w-4 text-muted-foreground" />
           Системная
         </DropdownMenuItem>
       </DropdownMenuContent>

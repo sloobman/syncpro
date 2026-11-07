@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 /**
  * OAuth endpoint — DISABLED for security.
@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
  *  3. Extract the verified email from the provider's response.
  *  4. Only then create or log in the user.
  */
-export async function POST(_request: NextRequest) {
+export async function POST() {
   return NextResponse.json(
     {
       error:

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-type Theme = 'light' | 'dark' | 'system';
+export type Theme = 'light' | 'dark' | 'system';
+export type CanvasWidth = 'narrow' | 'standard' | 'wide';
 
 interface UIState {
   sidebarOpen: boolean;
@@ -9,6 +10,7 @@ interface UIState {
   editorSidebarOpen: boolean;
   editorSidebarTab: string;
   theme: Theme;
+  canvasWidth: CanvasWidth;
   commandPaletteOpen: boolean;
 }
 
@@ -18,10 +20,20 @@ interface UIActions {
   toggleEditorSidebar: () => void;
   setEditorSidebarTab: (tab: string) => void;
   setTheme: (theme: Theme) => void;
+  setCanvasWidth: (width: CanvasWidth) => void;
   toggleCommandPalette: () => void;
 }
 
 type UIStore = UIState & UIActions;
+
+function applyThemeClass(theme: Theme) {
+  if (typeof window === 'undefined') return;
+  const isDark =
+    theme === 'dark' ||
+    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.classList.toggle('dark', isDark);
+  localStorage.setItem('syncpro-theme', theme);
+}
 
 export const useUIStore = create<UIStore>()(
   persist(
@@ -31,6 +43,7 @@ export const useUIStore = create<UIStore>()(
       editorSidebarOpen: false,
       editorSidebarTab: 'comments',
       theme: 'system',
+      canvasWidth: 'standard',
       commandPaletteOpen: false,
 
       toggleSidebar: () =>
@@ -48,7 +61,12 @@ export const useUIStore = create<UIStore>()(
       setEditorSidebarTab: (tab: string) =>
         set({ editorSidebarTab: tab, editorSidebarOpen: true }),
 
-      setTheme: (theme: Theme) => set({ theme }),
+      setTheme: (theme: Theme) => {
+        applyThemeClass(theme);
+        set({ theme });
+      },
+
+      setCanvasWidth: (canvasWidth: CanvasWidth) => set({ canvasWidth }),
 
       toggleCommandPalette: () =>
         set((state) => ({ commandPaletteOpen: !state.commandPaletteOpen })),
@@ -57,6 +75,7 @@ export const useUIStore = create<UIStore>()(
       name: 'syncpro-ui',
       partialize: (state) => ({
         theme: state.theme,
+        canvasWidth: state.canvasWidth,
       }),
     },
   ),

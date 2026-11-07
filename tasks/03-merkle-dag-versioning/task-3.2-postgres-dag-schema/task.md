@@ -1,4 +1,4 @@
-# Task 3.2: Проектирование и миграции схемы PostgreSQL для Merkle-DAG
+﻿# Task 3.2: Проектирование и миграции схемы PostgreSQL для Merkle-DAG
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-3.2`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер)
 - **Ответственная роль:** Database / Backend Engineer
 - **Зависимости:** [TASK-0.1](file:///c:/Users/sloobman/syncpro/tasks/00-infrastructure-foundation/task-0.1-dev-environment/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L141-L177), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L122)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L141-L177), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L122)
 
 ---
 

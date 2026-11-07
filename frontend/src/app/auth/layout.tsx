@@ -18,7 +18,7 @@ export default function AuthLayout({
             «SyncPro объединил скорость локального редактора с мощью Merkle-CRDT и контроля версий, кардинально изменив подход к командной работе над документами.»
           </blockquote>
           <div>
-            <p className="font-semibold text-foreground">Команда Antigravity</p>
+            <p className="font-semibold text-foreground">Команда SyncPro</p>
             <p className="text-sm text-muted-foreground">Архитекторы SyncPro Engine</p>
           </div>
         </div>

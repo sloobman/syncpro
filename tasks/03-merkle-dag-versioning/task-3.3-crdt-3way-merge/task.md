@@ -1,4 +1,4 @@
-# Task 3.3: Алгоритм 3-стороннего бесконфликтного слияния веток (CRDT 3-Way Merge)
+﻿# Task 3.3: Алгоритм 3-стороннего бесконфликтного слияния веток (CRDT 3-Way Merge)
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-3.3`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Ключевая киллер-фича проекта)
 - **Ответственная роль:** Algorithm / Backend Systems Engineer
 - **Зависимости:** [TASK-1.2](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.2-yata-fugue-ordering/task.md), [TASK-3.1](file:///c:/Users/sloobman/syncpro/tasks/03-merkle-dag-versioning/task-3.1-micro-commits-milestones/task.md), [TASK-3.2](file:///c:/Users/sloobman/syncpro/tasks/03-merkle-dag-versioning/task-3.2-postgres-dag-schema/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L123-L127)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L123-L127)
 
 ---
 

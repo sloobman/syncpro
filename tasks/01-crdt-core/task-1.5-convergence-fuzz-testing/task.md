@@ -1,4 +1,4 @@
-# Task 1.5: Фреймворк стресс-тестирования и фаззинга сходимости
+﻿# Task 1.5: Фреймворк стресс-тестирования и фаззинга сходимости
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-1.5`
@@ -6,7 +6,7 @@
 - **Приоритет:** P0 (Блокер качества ядра)
 - **Ответственная роль:** QA Automation / Core CRDT Engineer
 - **Зависимости:** [TASK-1.1](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.1-clock-id-nodes/task.md), [TASK-1.2](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.2-yata-fugue-ordering/task.md), [TASK-1.3](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.3-replicated-tree-crdt/task.md), [TASK-1.4](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.4-binary-codec-varint-rle/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L112), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L182)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L112), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L182)
 
 ---
 

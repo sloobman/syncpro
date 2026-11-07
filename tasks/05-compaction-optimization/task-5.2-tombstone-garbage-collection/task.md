@@ -1,4 +1,4 @@
-# Task 5.2: Сборка мусора надгробий (Tombstone Garbage Collection)
+﻿# Task 5.2: Сборка мусора надгробий (Tombstone Garbage Collection)
 
 ## 1. Метаданные задачи
 - **ID:** `TASK-5.2`
@@ -6,7 +6,7 @@
 - **Приоритет:** P2
 - **Ответственная роль:** Core Systems / Algorithm Engineer
 - **Зависимости:** [TASK-1.1](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.1-clock-id-nodes/task.md), [TASK-1.2](file:///c:/Users/sloobman/syncpro/tasks/01-crdt-core/task-1.2-yata-fugue-ordering/task.md), [TASK-5.1](file:///c:/Users/sloobman/syncpro/tasks/05-compaction-optimization/task-5.1-s3-snapshot-worker/task.md)
-- **Родительская спецификация:** [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L15), [antigravity.md](file:///c:/Users/sloobman/syncpro/antigravity.md#L136)
+- **Родительская спецификация:** [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L15), [ARCHITECTURE.md](file:///c:/Users/sloobman/syncpro/ARCHITECTURE.md#L136)
 
 ---
 
