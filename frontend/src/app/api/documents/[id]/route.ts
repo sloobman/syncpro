@@ -1,15 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getUserFromRequest } from "@/lib/auth/jwt";
 import { WorkspaceRepository } from "@/lib/db/workspace-repository";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+    }
+
     const { id } = await params;
-    const data = await WorkspaceRepository.getDocumentById(id);
+    const data = await WorkspaceRepository.getDocumentById(id, user.id);
     if (!data) {
-      return NextResponse.json({ error: "Документ не найден" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Документ не найден или доступ ограничен" },
+        { status: 404 }
+      );
     }
     return NextResponse.json(data);
   } catch (err) {
@@ -23,21 +32,28 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+    }
+
     const { id } = await params;
     const body = await request.json();
     const { title, content } = body;
 
-    const success = await WorkspaceRepository.updateDocument(id, {
-      title,
-      content,
-    });
+    const success = await WorkspaceRepository.updateDocument(
+      id,
+      { title, content },
+      user.id
+    );
 
     if (!success) {
-      // If document doesn't exist in DB yet, create it
+      // If document doesn't exist in DB yet, create it under user's workspace
       await WorkspaceRepository.createDocument({
         id,
         title: title || "Безымянный документ",
         content: content || "",
+        createdBy: user.id,
       });
     }
 

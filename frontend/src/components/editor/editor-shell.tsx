@@ -196,11 +196,21 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     refreshBlocks();
 
     // Try fetching from server in background if available
-    fetch(`/api/documents/${documentId}`)
+    fetch(`/api/documents/${documentId}`, { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.document?.title) {
           setTitle(data.document.title);
+          if (
+            data?.content &&
+            (!savedContent || savedContent === `# ${docTitle}\n\nНачните редактирование документа...`)
+          ) {
+            const freshDoc = new CRDTDocument(1);
+            docRef.current = freshDoc;
+            initCRDTFromMarkdown(freshDoc, data.content);
+            freshDoc.onUpdate(refreshBlocks);
+            refreshBlocks();
+          }
         }
       })
       .catch(() => {});

@@ -5,6 +5,10 @@ import { WorkspaceRepository } from "@/lib/db/workspace-repository";
 export async function POST(request: NextRequest) {
   try {
     const user = getUserFromRequest(request);
+    if (!user) {
+      return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { id, workspaceId, title, content } = body;
 
@@ -15,12 +19,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (workspaceId) {
+      const hasAccess = await WorkspaceRepository.isUserMemberOrOwner(workspaceId, user.id);
+      if (!hasAccess) {
+        return NextResponse.json(
+          { error: "Нет доступа к этому пространству" },
+          { status: 403 }
+        );
+      }
+    }
+
     const document = await WorkspaceRepository.createDocument({
       id,
       workspaceId,
       title: title.trim(),
       content: content || "",
-      createdBy: user?.id,
+      createdBy: user.id,
     });
 
     return NextResponse.json({ document }, { status: 201 });
