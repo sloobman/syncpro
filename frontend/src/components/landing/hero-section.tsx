@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const floatingBadges = [
-  { label: "CRDT", x: "-4%", y: "20%", delay: 0.8 },
-  { label: "Offline-First", x: "96%", y: "35%", delay: 1.0 },
+  { label: "CRDT", x: "2%", y: "15%", delay: 0.8 },
+  { label: "Offline-First", x: "78%", y: "35%", delay: 1.0 },
   { label: "60 FPS", x: "8%", y: "80%", delay: 1.2 },
 ] as const;
 

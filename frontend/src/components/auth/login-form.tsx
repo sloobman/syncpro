@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ export function LoginForm() {
   const login = useAuthStore((state) => state.login);
   const [showPassword, setShowPassword] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const {
     register,
@@ -26,15 +27,29 @@ export function LoginForm() {
     formState: { errors, isSubmitting },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
+    mode: "onTouched",
     defaultValues: {
       email: "",
       password: "",
     },
   });
 
+  const onInvalid = (fieldErrors: FieldErrors<LoginFormValues>) => {
+    if (fieldErrors.email && fieldErrors.password) {
+      setFormError("Заполните email и пароль для входа");
+    } else if (fieldErrors.email) {
+      setFormError(fieldErrors.email.message || "Введите корректный email");
+    } else if (fieldErrors.password) {
+      setFormError(fieldErrors.password.message || "Введите пароль");
+    } else {
+      setFormError("Заполните все обязательные поля");
+    }
+  };
+
   async function onSubmit(data: LoginFormValues) {
     try {
       setApiError(null);
+      setFormError(null);
       await login(data.email, data.password);
       router.push("/dashboard");
     } catch (err: unknown) {
@@ -46,14 +61,16 @@ export function LoginForm() {
     }
   }
 
+  const activeError = formError || apiError;
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      {apiError && (
+    <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-4" noValidate>
+      {activeError && (
         <div
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400"
+          className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm font-medium text-destructive dark:border-destructive/40 dark:bg-destructive/20"
         >
-          {apiError}
+          {activeError}
         </div>
       )}
 
@@ -64,12 +81,16 @@ export function LoginForm() {
           type="email"
           placeholder="name@example.com"
           autoComplete="email"
+          required
+          aria-required="true"
           aria-invalid={!!errors.email}
-          className={cn(errors.email && "border-red-500 focus-visible:ring-red-500")}
+          className={cn(errors.email && "border-destructive focus-visible:ring-destructive")}
           {...register("email")}
         />
         {errors.email && (
-          <p className="text-xs text-red-500">{errors.email.message}</p>
+          <p role="alert" className="text-xs font-medium text-destructive error">
+            {errors.email.message}
+          </p>
         )}
       </div>
 
@@ -81,10 +102,12 @@ export function LoginForm() {
             type={showPassword ? "text" : "password"}
             placeholder="Введите пароль"
             autoComplete="current-password"
+            required
+            aria-required="true"
             aria-invalid={!!errors.password}
             className={cn(
               "pr-10",
-              errors.password && "border-red-500 focus-visible:ring-red-500"
+              errors.password && "border-destructive focus-visible:ring-destructive"
             )}
             {...register("password")}
           />
@@ -104,7 +127,9 @@ export function LoginForm() {
           </Button>
         </div>
         {errors.password && (
-          <p className="text-xs text-red-500">{errors.password.message}</p>
+          <p role="alert" className="text-xs font-medium text-destructive error">
+            {errors.password.message}
+          </p>
         )}
       </div>
 

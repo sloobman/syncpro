@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,16 +21,17 @@ export function RegisterForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     watch,
     setValue,
-    trigger,
     formState: { errors, isSubmitting },
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
+    mode: "onTouched",
     defaultValues: {
       name: "",
       email: "",
@@ -42,9 +43,26 @@ export function RegisterForm() {
 
   const watchedPassword = watch("password");
 
+  const onInvalid = (fieldErrors: FieldErrors<RegisterFormValues>) => {
+    if (fieldErrors.name) {
+      setFormError(fieldErrors.name.message || "Введите имя");
+    } else if (fieldErrors.email) {
+      setFormError(fieldErrors.email.message || "Введите корректный email");
+    } else if (fieldErrors.password) {
+      setFormError(fieldErrors.password.message || "Введите надежный пароль");
+    } else if (fieldErrors.confirmPassword) {
+      setFormError(fieldErrors.confirmPassword.message || "Пароли не совпадают");
+    } else if (fieldErrors.acceptTerms) {
+      setFormError("Необходимо принять условия использования и политику конфиденциальности");
+    } else {
+      setFormError("Пожалуйста, заполните обязательные поля корректно");
+    }
+  };
+
   async function onSubmit(data: RegisterFormValues) {
     try {
       setApiError(null);
+      setFormError(null);
       await registerUser({
         name: data.name,
         email: data.email,
@@ -60,14 +78,16 @@ export function RegisterForm() {
     }
   }
 
+  const activeError = formError || apiError;
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      {apiError && (
+    <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-4" noValidate>
+      {activeError && (
         <div
           role="alert"
-          className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400"
+          className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm font-medium text-destructive dark:border-destructive/40 dark:bg-destructive/20"
         >
-          {apiError}
+          {activeError}
         </div>
       )}
 
@@ -77,12 +97,16 @@ export function RegisterForm() {
           id="register-name"
           placeholder="Ваше имя"
           autoComplete="name"
+          required
+          aria-required="true"
           aria-invalid={!!errors.name}
-          className={cn(errors.name && "border-red-500 focus-visible:ring-red-500")}
+          className={cn(errors.name && "border-destructive focus-visible:ring-destructive")}
           {...register("name")}
         />
         {errors.name && (
-          <p className="text-xs text-red-500">{errors.name.message}</p>
+          <p role="alert" className="text-xs font-medium text-destructive error">
+            {errors.name.message}
+          </p>
         )}
       </div>
 
@@ -93,12 +117,16 @@ export function RegisterForm() {
           type="email"
           placeholder="name@example.com"
           autoComplete="email"
+          required
+          aria-required="true"
           aria-invalid={!!errors.email}
-          className={cn(errors.email && "border-red-500 focus-visible:ring-red-500")}
+          className={cn(errors.email && "border-destructive focus-visible:ring-destructive")}
           {...register("email")}
         />
         {errors.email && (
-          <p className="text-xs text-red-500">{errors.email.message}</p>
+          <p role="alert" className="text-xs font-medium text-destructive error">
+            {errors.email.message}
+          </p>
         )}
       </div>
 
@@ -110,10 +138,12 @@ export function RegisterForm() {
             type={showPassword ? "text" : "password"}
             placeholder="Придумайте пароль"
             autoComplete="new-password"
+            required
+            aria-required="true"
             aria-invalid={!!errors.password}
             className={cn(
               "pr-10",
-              errors.password && "border-red-500 focus-visible:ring-red-500"
+              errors.password && "border-destructive focus-visible:ring-destructive"
             )}
             {...register("password")}
           />
@@ -133,7 +163,9 @@ export function RegisterForm() {
           </Button>
         </div>
         {errors.password && (
-          <p className="text-xs text-red-500">{errors.password.message}</p>
+          <p role="alert" className="text-xs font-medium text-destructive error">
+            {errors.password.message}
+          </p>
         )}
         <PasswordStrength password={watchedPassword ?? ""} />
       </div>
@@ -146,11 +178,13 @@ export function RegisterForm() {
             type={showConfirmPassword ? "text" : "password"}
             placeholder="Повторите пароль"
             autoComplete="new-password"
+            required
+            aria-required="true"
             aria-invalid={!!errors.confirmPassword}
             className={cn(
               "pr-10",
               errors.confirmPassword &&
-                "border-red-500 focus-visible:ring-red-500"
+                "border-destructive focus-visible:ring-destructive"
             )}
             {...register("confirmPassword")}
           />
@@ -172,7 +206,7 @@ export function RegisterForm() {
           </Button>
         </div>
         {errors.confirmPassword && (
-          <p className="text-xs text-red-500">
+          <p role="alert" className="text-xs font-medium text-destructive error">
             {errors.confirmPassword.message}
           </p>
         )}
@@ -183,9 +217,17 @@ export function RegisterForm() {
           <Checkbox
             id="accept-terms"
             aria-label="Принять условия соглашения"
+            aria-required="true"
+            aria-invalid={!!errors.acceptTerms}
+            checked={!!watch("acceptTerms")}
             onCheckedChange={(checked) => {
-              setValue("acceptTerms", checked === true ? (true as unknown as true) : (false as unknown as true));
-              trigger("acceptTerms");
+              setValue("acceptTerms", checked === true ? (true as unknown as true) : (false as unknown as true), {
+                shouldValidate: true,
+                shouldDirty: true,
+              });
+              if (checked === true && formError?.includes("условия")) {
+                setFormError(null);
+              }
             }}
           />
           <Label
@@ -211,7 +253,9 @@ export function RegisterForm() {
           </Label>
         </div>
         {errors.acceptTerms && (
-          <p className="text-xs text-red-500">{errors.acceptTerms.message}</p>
+          <p role="alert" className="text-xs font-medium text-destructive error">
+            {errors.acceptTerms.message}
+          </p>
         )}
       </div>
 

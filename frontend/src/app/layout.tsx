@@ -12,9 +12,11 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin", "cyrillic"],
   variable: "--font-mono",
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://mihleev.ru"),
   title: "SyncPro — Совместное редактирование с контролем версий",
   description:
     "Редактируйте документы вместе в реальном времени. Ветвление, слияние и полная история изменений — как Git, но для текста.",
@@ -32,6 +34,23 @@ export const metadata: Metadata = {
       "Редактируйте документы вместе в реальном времени. Ветвление, слияние и полная история изменений — как Git, но для текста.",
     type: "website",
     locale: "ru_RU",
+    url: "https://mihleev.ru",
+    siteName: "SyncPro",
+    images: [
+      {
+        url: "/og-banner.png",
+        width: 1200,
+        height: 630,
+        alt: "SyncPro — Совместное редактирование с контролем версий",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "SyncPro — Совместное редактирование с контролем версий",
+    description:
+      "Редактируйте документы вместе в реальном времени. Ветвление, слияние и полная история изменений — как Git, но для текста.",
+    images: ["/og-banner.png"],
   },
 };
 
