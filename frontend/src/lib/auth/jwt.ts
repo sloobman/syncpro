@@ -8,16 +8,30 @@ export interface TokenPayload {
   role: string;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || "syncpro-prod-super-secret-jwt-key-minimum-32-chars";
 const TOKEN_EXPIRY = "7d";
 
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "[SECURITY] JWT_SECRET environment variable is not set. " +
+      "Refusing to start or operate without JWT_SECRET."
+    );
+  }
+  return secret;
+}
+
 export function signToken(payload: TokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: TOKEN_EXPIRY });
 }
 
 export function verifyToken(token: string): TokenPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as TokenPayload;
+    const decoded = jwt.verify(token, getJwtSecret());
+    if (typeof decoded === "object" && decoded !== null && "id" in decoded) {
+      return decoded as unknown as TokenPayload;
+    }
+    return null;
   } catch {
     return null;
   }

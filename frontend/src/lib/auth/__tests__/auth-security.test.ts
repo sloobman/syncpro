@@ -4,6 +4,9 @@ import { hashPassword, verifyPassword } from "../password";
 import { signToken, verifyToken } from "../jwt";
 import { toValidUUID } from "../../db/dag-repository";
 
+// Ensure JWT_SECRET is set for the test suite
+process.env.JWT_SECRET = process.env.JWT_SECRET || "test-jwt-secret-minimum-32-chars-for-testing";
+
 test("hashPassword produces valid bcrypt hash and verifyPassword verifies correctly", async () => {
   const plain = "SuperSecretPassword123!";
   const hash = await hashPassword(plain);
@@ -39,6 +42,28 @@ test("signToken generates valid signed JWT and verifyToken recovers payload", ()
   const tampered = token.slice(0, -5) + "abcde";
   const tamperedDecoded = verifyToken(tampered);
   assert.equal(tamperedDecoded, null, "Tampered token signature must fail verification");
+});
+
+test("signToken throws error when JWT_SECRET is missing", () => {
+  const originalSecret = process.env.JWT_SECRET;
+  delete process.env.JWT_SECRET;
+
+  try {
+    assert.throws(
+      () => {
+        signToken({
+          id: "1",
+          email: "test@example.com",
+          name: "Test",
+          role: "user",
+        });
+      },
+      /JWT_SECRET environment variable is not set/,
+      "Must throw when JWT_SECRET is missing"
+    );
+  } finally {
+    process.env.JWT_SECRET = originalSecret;
+  }
 });
 
 test("toValidUUID converts invalid formats into deterministic valid UUIDs", () => {

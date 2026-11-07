@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { CRDTDocument } from "@/lib/crdt/crdt-doc";
 import { CompactionWorker } from "@/lib/compaction/snapshot-worker";
 import { putS3Object, getS3Object, BUCKET_SNAPSHOTS } from "@/lib/db/s3";
+import { getUserFromRequest } from "@/lib/auth/jwt";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
+  }
+
   const { id } = await params;
   const snapshotKey = `snapshots/${id}/latest.snap.bin`;
 
@@ -52,6 +58,11 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
+  }
+
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const { minStableClock } = body;

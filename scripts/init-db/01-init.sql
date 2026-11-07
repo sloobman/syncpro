@@ -5,11 +5,15 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 2. Configure Secondary Dev Role if specified in task spec
+-- 2. Configure application role with env-based password
+-- NOTE: The syncpro_user password should be set via ALTER ROLE after
+-- container initialization using the POSTGRES_PASSWORD env variable.
+-- Never hardcode passwords in SQL scripts committed to version control.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'syncpro_user') THEN
-        CREATE USER syncpro_user WITH PASSWORD 'syncpro_secret';
+        CREATE USER syncpro_user WITH PASSWORD NULL;
+        RAISE NOTICE 'Created syncpro_user — set a password with ALTER ROLE before use.';
     END IF;
 END
 $$;
@@ -103,6 +107,7 @@ CREATE INDEX IF NOT EXISTS idx_commit_parents_parent ON commit_parents(parent_co
 CREATE INDEX IF NOT EXISTS idx_branches_doc ON branches(document_id);
 CREATE INDEX IF NOT EXISTS idx_documents_workspace ON documents(workspace_id);
 
--- 7. Grant Permissions
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO PUBLIC;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO PUBLIC;
+-- 7. Grant Permissions (principle of least privilege)
+-- Only grant necessary permissions to the application user
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO syncpro_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO syncpro_user;

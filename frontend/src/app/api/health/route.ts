@@ -5,7 +5,7 @@ import { getS3Client } from "@/lib/db/s3";
 import { ListBucketsCommand } from "@aws-sdk/client-s3";
 
 export async function GET() {
-  const health: Record<string, { status: "up" | "down" | "degraded"; latencyMs?: number; details?: string }> = {};
+  const health: Record<string, { status: "up" | "down" | "degraded"; latencyMs?: number }> = {};
 
   // 1. PostgreSQL check
   const pgStart = Date.now();
@@ -15,11 +15,10 @@ export async function GET() {
       status: res.rows.length > 0 ? "up" : "degraded",
       latencyMs: Date.now() - pgStart,
     };
-  } catch (err) {
+  } catch {
     health.postgres = {
       status: "down",
       latencyMs: Date.now() - pgStart,
-      details: (err as Error).message,
     };
   }
 
@@ -32,11 +31,10 @@ export async function GET() {
       status: pong === "PONG" ? "up" : "degraded",
       latencyMs: Date.now() - redisStart,
     };
-  } catch (err) {
+  } catch {
     health.redis = {
       status: "down",
       latencyMs: Date.now() - redisStart,
-      details: (err as Error).message,
     };
   }
 
@@ -49,11 +47,10 @@ export async function GET() {
       status: "up",
       latencyMs: Date.now() - s3Start,
     };
-  } catch (err) {
+  } catch {
     health.minio_s3 = {
       status: "down",
       latencyMs: Date.now() - s3Start,
-      details: (err as Error).message,
     };
   }
 

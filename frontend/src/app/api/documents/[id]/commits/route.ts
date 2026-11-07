@@ -3,6 +3,7 @@ import { computeCommitHash } from "@/lib/merkle-dag/hash";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { MerkleDAGRepository } from "@/lib/db/dag-repository";
 import { putS3Object, BUCKET_COMMITS } from "@/lib/db/s3";
+import { getUserFromRequest } from "@/lib/auth/jwt";
 
 function getFallbackCommits(documentId: string): MerkleCommit[] {
   return [
@@ -27,9 +28,14 @@ function getFallbackCommits(documentId: string): MerkleCommit[] {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
+  }
+
   const { id } = await params;
 
   try {
@@ -56,9 +62,14 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
+  }
+
   const { id } = await params;
   const body = await request.json();
-  const { parents, stateVector, message, author, branch, deltaBytesBase64, deltaSha256 } = body;
+  const { parents, stateVector, message, branch, deltaBytesBase64, deltaSha256 } = body;
 
   const commitPayload = {
     documentId: id,
@@ -67,9 +78,9 @@ export async function POST(
     stateVector: stateVector && typeof stateVector === "object" ? stateVector : {},
     message: typeof message === "string" ? message : "Automated micro-commit",
     author: {
-      userId: author?.userId || "00000000-0000-0000-0000-000000000000",
-      name: author?.name || "Пользователь",
-      avatarUrl: author?.avatarUrl ?? null,
+      userId: user.id,
+      name: user.name,
+      avatarUrl: null,
     },
     timestamp: Date.now(),
     branch: typeof branch === "string" ? branch : "main",
