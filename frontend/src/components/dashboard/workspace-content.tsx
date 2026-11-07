@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { ChevronRight, Filter, ArrowUpDown, Search, X, Check } from "lucide-react";
 import { DocumentRow } from "@/components/dashboard/document-row";
@@ -27,6 +27,13 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   const updateDocument = useWorkspaceStore((state) => state.updateDocument);
   const deleteDocument = useWorkspaceStore((state) => state.deleteDocument);
   const createDocument = useWorkspaceStore((state) => state.createDocument);
+  const fetchWorkspaces = useWorkspaceStore((state) => state.fetchWorkspaces);
+  const fetchWorkspaceDocuments = useWorkspaceStore((state) => state.fetchWorkspaceDocuments);
+
+  useEffect(() => {
+    fetchWorkspaces();
+    fetchWorkspaceDocuments(workspaceId);
+  }, [workspaceId, fetchWorkspaces, fetchWorkspaceDocuments]);
 
   const currentWs = workspaces.find((w) => w.id === workspaceId) || {
     id: workspaceId,
@@ -137,7 +144,7 @@ export function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
           </div>
 
           <div className="flex items-center gap-2.5">
-            <InviteMembersDialog />
+            <InviteMembersDialog workspaceId={workspaceId} />
             <CreateDocumentDialog workspaceId={workspaceId} />
           </div>
         </div>

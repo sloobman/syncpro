@@ -24,6 +24,24 @@ export interface DbDocumentRow {
   updated_at: string;
 }
 
+export interface WorkspaceMemberInfo {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  role: string;
+  joinedAt: string;
+}
+
+export interface DbMemberRow {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+  role: string;
+  joined_at: string;
+}
+
 export function toValidUUID(id: string): string {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (uuidRegex.test(id)) return id;
@@ -33,7 +51,34 @@ export function toValidUUID(id: string): string {
 
 export class WorkspaceRepository {
   /**
-   * Retrieves all workspaces for a given user (either owner or member).
+   * Checks whether the user is owner or invited member of the workspace.
+   */
+  static async isUserMemberOrOwner(workspaceId: string, userId: string): Promise<boolean> {
+    const validWsId = toValidUUID(workspaceId);
+    const validUserId = toValidUUID(userId);
+
+    const sql = `
+      SELECT 1 FROM workspaces w
+      WHERE w.id = $1 AND (
+        w.owner_id = $2 OR
+        EXISTS (
+          SELECT 1 FROM workspace_members wm
+          WHERE wm.workspace_id = $1 AND wm.user_id = $2
+        )
+      )
+      LIMIT 1
+    `;
+
+    try {
+      const res = await query(sql, [validWsId, validUserId]);
+      return res.rows.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Retrieves all workspaces accessible to a user (owned or invited).
    */
   static async getUserWorkspaces(userId: string): Promise<Workspace[]> {
     const validUserId = toValidUUID(userId);
@@ -116,7 +161,7 @@ export class WorkspaceRepository {
       await query(
         `INSERT INTO workspace_members (workspace_id, user_id, role)
          VALUES ($1, $2, 'owner')
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT (workspace_id, user_id) DO NOTHING`,
         [row.id, validOwnerId]
       );
     } catch {
@@ -138,10 +183,50 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Retrieves a single workspace by ID.
+   * Creates a default private workspace and welcome document for a newly registered user.
    */
-  static async getWorkspaceById(id: string): Promise<Workspace | null> {
+  static async createDefaultWorkspaceForUser(userId: string, userName: string): Promise<Workspace> {
+    const wsName = `Личное пространство ${userName}`;
+    const ws = await this.createWorkspace({
+      name: wsName,
+      description: "Ваше персональное рабочее пространство для заметок и документов",
+      iconEmoji: "🚀",
+      ownerId: userId,
+    });
+
+    // Create welcome document
+    const welcomeText = `# Добро пожаловать в SyncPro!
+
+Поздравляем с началом работы. SyncPro — это защищенная распределенная среда для совместного редактирования с локальной автономностью и контролем версий.
+
+## Возможности вашей рабочей области
+- **Совместное редактирование по приглашению:** Приглашайте коллег через диалог «Участники» в правом верхнем углу. Другие пользователи не увидят ваши документы без вашего приглашения.
+- **Автономность:** Редактор сохраняет ваши изменения локально и мгновенно синхронизирует их при подключении к сети.
+- **История версий (Merkle-DAG):** Каждая правка фиксируется криптографическим коммитом. Вы можете перемещаться во времени и объединять ветки без конфликтов.
+
+Нажмите **«Новый документ»** на панели сверху, чтобы создать свой следующий проект!`;
+
+    await this.createDocument({
+      workspaceId: ws.id,
+      title: "Начало работы со SyncPro",
+      content: welcomeText,
+      createdBy: userId,
+    });
+
+    return ws;
+  }
+
+  /**
+   * Retrieves a single workspace by ID with strict access control.
+   */
+  static async getWorkspaceById(id: string, userId?: string): Promise<Workspace | null> {
     const validId = toValidUUID(id);
+
+    if (userId) {
+      const hasAccess = await this.isUserMemberOrOwner(validId, userId);
+      if (!hasAccess) return null;
+    }
+
     const sql = `
       SELECT 
         w.id,
@@ -185,10 +270,137 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Retrieves all documents for a given workspace.
+   * Retrieves members of a workspace.
    */
-  static async getWorkspaceDocuments(workspaceId: string): Promise<Document[]> {
+  static async getWorkspaceMembers(workspaceId: string): Promise<WorkspaceMemberInfo[]> {
     const validWsId = toValidUUID(workspaceId);
+    const sql = `
+      SELECT 
+        u.id,
+        u.name,
+        u.email,
+        u.avatar_url,
+        wm.role,
+        COALESCE(wm.joined_at, w.created_at) as joined_at
+      FROM workspace_members wm
+      JOIN users u ON u.id = wm.user_id
+      JOIN workspaces w ON w.id = wm.workspace_id
+      WHERE wm.workspace_id = $1
+      ORDER BY 
+        CASE WHEN wm.role = 'owner' THEN 0 ELSE 1 END,
+        wm.joined_at ASC
+    `;
+
+    try {
+      const res = await query<DbMemberRow>(sql, [validWsId]);
+      return res.rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        avatarUrl: r.avatar_url,
+        role: r.role === "owner" ? "Владелец" : r.role === "admin" ? "Администратор" : "Редактор",
+        joinedAt: r.joined_at,
+      }));
+    } catch (err) {
+      console.error("[WorkspaceRepository.getWorkspaceMembers error]:", err);
+      return [];
+    }
+  }
+
+  /**
+   * Invites a member by email to a workspace.
+   * If user already exists in DB, adds them directly to workspace_members.
+   * Otherwise saves pending invitation so they join automatically when they register.
+   */
+  static async inviteMember(params: {
+    workspaceId: string;
+    email: string;
+    role: string;
+    inviterId: string;
+  }): Promise<{ success: boolean; isPending: boolean; message: string }> {
+    const validWsId = toValidUUID(params.workspaceId);
+    const validInviterId = toValidUUID(params.inviterId);
+    const email = params.email.trim().toLowerCase();
+
+    // Verify inviter has access
+    const isAllowed = await this.isUserMemberOrOwner(validWsId, validInviterId);
+    if (!isAllowed) {
+      return { success: false, isPending: false, message: "Нет прав на приглашение участников" };
+    }
+
+    // Check if user exists
+    const userRes = await query(`SELECT id, name, email FROM users WHERE LOWER(email) = $1`, [email]);
+
+    if (userRes.rows.length > 0) {
+      const targetUser = userRes.rows[0];
+      await query(
+        `INSERT INTO workspace_members (workspace_id, user_id, role)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (workspace_id, user_id) 
+         DO UPDATE SET role = EXCLUDED.role`,
+        [validWsId, targetUser.id, params.role]
+      );
+      return {
+        success: true,
+        isPending: false,
+        message: `Пользователь ${targetUser.name} (${email}) успешно добавлен в рабочее пространство`,
+      };
+    } else {
+      // Save to workspace_invitations
+      try {
+        await query(
+          `INSERT INTO workspace_invitations (workspace_id, email, role, inviter_id)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (workspace_id, email)
+           DO UPDATE SET role = EXCLUDED.role`,
+          [validWsId, email, params.role, validInviterId]
+        );
+      } catch {
+        // ignore
+      }
+      return {
+        success: true,
+        isPending: true,
+        message: `Приглашение отправлено на ${email}. Доступ откроется сразу после регистрации`,
+      };
+    }
+  }
+
+  /**
+   * Claims all pending invitations for a newly registered or logged in user.
+   */
+  static async claimPendingInvitations(userId: string, email: string): Promise<number> {
+    const validUserId = toValidUUID(userId);
+    const cleanEmail = email.trim().toLowerCase();
+
+    const sql = `
+      INSERT INTO workspace_members (workspace_id, user_id, role)
+      SELECT wi.workspace_id, $1, wi.role
+      FROM workspace_invitations wi
+      WHERE LOWER(wi.email) = $2
+      ON CONFLICT (workspace_id, user_id) DO NOTHING
+    `;
+
+    try {
+      const res = await query(sql, [validUserId, cleanEmail]);
+      await query(`DELETE FROM workspace_invitations WHERE LOWER(email) = $1`, [cleanEmail]);
+      return res.rowCount ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Retrieves all documents for a given workspace with access check.
+   */
+  static async getWorkspaceDocuments(workspaceId: string, userId?: string): Promise<Document[]> {
+    const validWsId = toValidUUID(workspaceId);
+
+    if (userId) {
+      const hasAccess = await this.isUserMemberOrOwner(validWsId, userId);
+      if (!hasAccess) return [];
+    }
+
     const sql = `
       SELECT 
         id,
@@ -234,8 +446,15 @@ export class WorkspaceRepository {
     createdBy?: string;
   }): Promise<Document> {
     const validId = params.id ? toValidUUID(params.id) : crypto.randomUUID();
-    const validWsId = params.workspaceId ? toValidUUID(params.workspaceId) : null;
+    let validWsId = params.workspaceId ? toValidUUID(params.workspaceId) : null;
     const validUserId = params.createdBy ? toValidUUID(params.createdBy) : null;
+
+    if (!validWsId && validUserId) {
+      const userWorkspaces = await this.getUserWorkspaces(validUserId);
+      if (userWorkspaces.length > 0) {
+        validWsId = userWorkspaces[0].id;
+      }
+    }
 
     const sql = `
       INSERT INTO documents (id, workspace_id, title, content, created_by)
@@ -274,9 +493,16 @@ export class WorkspaceRepository {
    */
   static async updateDocument(
     id: string,
-    updates: { title?: string; content?: string }
+    updates: { title?: string; content?: string },
+    userId?: string
   ): Promise<boolean> {
     const validId = toValidUUID(id);
+
+    if (userId) {
+      const doc = await this.getDocumentById(id, userId);
+      if (!doc) return false;
+    }
+
     const sets: string[] = ["updated_at = NOW()"];
     const vals: (string | null)[] = [validId];
 
@@ -301,9 +527,12 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Retrieves document metadata and content.
+   * Retrieves document metadata and content with access verification.
    */
-  static async getDocumentById(id: string): Promise<{ document: Document; content: string } | null> {
+  static async getDocumentById(
+    id: string,
+    userId?: string
+  ): Promise<{ document: Document; content: string } | null> {
     const validId = toValidUUID(id);
     const sql = `SELECT * FROM documents WHERE id = $1`;
 
@@ -311,6 +540,14 @@ export class WorkspaceRepository {
       const res = await query<DbDocumentRow>(sql, [validId]);
       if (res.rows.length === 0) return null;
       const row = res.rows[0];
+
+      if (userId && row.workspace_id) {
+        const hasAccess = await this.isUserMemberOrOwner(row.workspace_id, userId);
+        if (!hasAccess && row.created_by !== toValidUUID(userId)) {
+          return null;
+        }
+      }
+
       return {
         document: {
           id: row.id,

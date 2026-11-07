@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { UserRepository } from "@/lib/auth/user-repository";
 import { verifyPassword } from "@/lib/auth/password";
 import { signToken } from "@/lib/auth/jwt";
+import { WorkspaceRepository } from "@/lib/db/workspace-repository";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { email, password } = body;
 
-    if (!email || !password || typeof email !== "string" || typeof password !== "string") {
+    if (!email || !password) {
       return NextResponse.json(
-        { error: "Email и пароль обязательны для заполнения" },
+        { error: "Email и пароль обязательны" },
         { status: 400 }
       );
     }
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify bcrypt password hash
+    // Verify password with bcrypt
     const isValid = await verifyPassword(password, userRow.password_hash);
     if (!isValid) {
       return NextResponse.json(
@@ -45,6 +46,13 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date(userRow.updated_at).toISOString(),
     };
 
+    // Claim any pending invitations for this email
+    try {
+      await WorkspaceRepository.claimPendingInvitations(safeUser.id, safeUser.email);
+    } catch {
+      // ignore
+    }
+
     // Generate JWT
     const token = signToken({
       id: safeUser.id,
@@ -59,7 +67,7 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
 
-    // Set HTTP-only secure cookie
+    // Set HTTP-only auth cookie
     response.cookies.set("syncpro_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
