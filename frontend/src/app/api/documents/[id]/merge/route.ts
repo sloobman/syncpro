@@ -4,6 +4,7 @@ import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { MerkleDAGRepository } from "@/lib/db/dag-repository";
 import { getUserFromRequest } from "@/lib/auth/jwt";
 import { WorkspaceRepository } from "@/lib/db/workspace-repository";
+import { NotificationRepository } from "@/lib/db/notification-repository";
 
 export async function POST(
   request: NextRequest,
@@ -67,6 +68,31 @@ export async function POST(
     await MerkleDAGRepository.saveCommit(mergeCommit);
   } catch (dbErr) {
     console.warn(`[Merge API] PostgreSQL save notice for merge commit:`, (dbErr as Error).message);
+  }
+
+  // Create notifications
+  try {
+    await NotificationRepository.createNotification({
+      userId: user.id,
+      title: "Ветка успешно слита",
+      description: `3-Way Merge ветки «${sourceBranch}» в «${targetBranch}» выполнен без конфликтов`,
+      type: "merge",
+      link: `/doc/${id}`,
+    });
+
+    const docData = await WorkspaceRepository.getDocumentById(id, user.id);
+    if (docData?.document.workspaceId) {
+      await NotificationRepository.notifyWorkspaceMembers({
+        workspaceId: docData.document.workspaceId,
+        excludeUserId: user.id,
+        title: "Слияние веток в документе",
+        description: `${user.name} выполнил(а) слияние «${sourceBranch}» в «${targetBranch}»`,
+        type: "merge",
+        link: `/doc/${id}`,
+      });
+    }
+  } catch (notifErr) {
+    console.warn("[Merge notification notice]:", notifErr);
   }
 
   return NextResponse.json({

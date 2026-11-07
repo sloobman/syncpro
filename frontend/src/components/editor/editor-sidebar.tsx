@@ -83,20 +83,37 @@ export function EditorSidebar({
   const [commentText, setCommentText] = useState("");
   const { user } = useAuthStore();
 
-  const handleSendComment = (e?: React.FormEvent) => {
+  const handleSendComment = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!commentText.trim()) return;
 
+    const trimmedText = commentText.trim();
     const newComment: CommentItem = {
       id: `c_${Date.now()}`,
       author: user?.name || "Вы",
       avatarUrl: user?.avatarUrl || null,
       time: "Только что",
-      text: commentText.trim(),
+      text: trimmedText,
     };
 
     setComments((prev) => [...prev, newComment]);
     setCommentText("");
+
+    // Create real notification in PostgreSQL
+    try {
+      await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: "Новый комментарий в документе",
+          description: `${user?.name || "Пользователь"}: «${trimmedText}»`,
+          type: "comment",
+        }),
+      });
+    } catch {
+      // Offline fallback
+    }
   };
 
   if (!open) {

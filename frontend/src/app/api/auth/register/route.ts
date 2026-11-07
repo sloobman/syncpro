@@ -3,6 +3,7 @@ import { UserRepository } from "@/lib/auth/user-repository";
 import { hashPassword } from "@/lib/auth/password";
 import { signToken } from "@/lib/auth/jwt";
 import { WorkspaceRepository } from "@/lib/db/workspace-repository";
+import { NotificationRepository } from "@/lib/db/notification-repository";
 
 // Server-side email validation regex (RFC 5322 simplified)
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -82,6 +83,19 @@ export async function POST(request: NextRequest) {
       }
     } catch (wsErr) {
       console.error("[Workspace auto-creation error]:", wsErr);
+    }
+
+    // Create welcome notification
+    try {
+      await NotificationRepository.createNotification({
+        userId: safeUser.id,
+        title: "Добро пожаловать в SyncPro!",
+        description: "Ваше рабочее пространство готово. Создавайте документы и приглашайте коллег для совместной работы.",
+        type: "system",
+        link: "/dashboard",
+      });
+    } catch (notifErr) {
+      console.warn("[Register notification notice]:", notifErr);
     }
 
     // Generate JWT
