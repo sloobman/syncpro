@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -9,14 +9,16 @@ import {
   MoreVertical,
   Cloud,
   FileDown,
+  FileUp,
   Printer,
   History,
   FileDiff,
-  Save,
+  GitCommit,
   Check,
   Copy,
   Loader2,
   Eye,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BranchSelector } from "@/components/editor/branch-selector";
@@ -33,6 +35,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -57,6 +60,8 @@ export interface EditorTopbarProps {
   onCreateBranch?: (b: string) => void;
   onExportMarkdown?: () => void;
   onExportPdf?: () => void;
+  onImportMarkdown?: (content: string, filename?: string) => void;
+  onDeleteDocument?: () => void;
   onToggleHistory?: () => void;
   onToggleDiff?: () => void;
   saveStatus?: "saved" | "saving" | "unsaved";
@@ -75,6 +80,8 @@ export function EditorTopbar({
   onCreateBranch,
   onExportMarkdown,
   onExportPdf,
+  onImportMarkdown,
+  onDeleteDocument,
   onToggleHistory,
   onToggleDiff,
   saveStatus = "saved",
@@ -83,7 +90,9 @@ export function EditorTopbar({
 }: EditorTopbarProps) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { user } = useAuthStore();
 
   const defaultUsers: CollaboratorInfo[] = [
@@ -105,8 +114,32 @@ export function EditorTopbar({
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (typeof content === "string" && onImportMarkdown) {
+        onImportMarkdown(content, file.name.replace(/\.[^/.]+$/, ""));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   return (
     <>
+      {/* Hidden file input for document import */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept=".md,.markdown,.txt"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       <header className="h-12 border-b border-border bg-card/85 backdrop-blur-md px-3 sm:px-4 flex items-center justify-between gap-3 select-none z-20">
         {/* Left controls */}
         <div className="flex items-center gap-2 min-w-0">
@@ -177,12 +210,12 @@ export function EditorTopbar({
             ) : saveStatus === "saving" ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
-                <span className="text-amber-500">Сохранение...</span>
+                <span className="text-amber-500">Автосохранение...</span>
               </>
             ) : saveStatus === "saved" ? (
               <>
                 <Cloud className="h-3.5 w-3.5 text-emerald-500" />
-                <span className="text-emerald-600 dark:text-emerald-400 font-medium">Сохранено</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">Черновик сохранён</span>
               </>
             ) : (
               <>
@@ -192,17 +225,17 @@ export function EditorTopbar({
             )}
           </div>
 
-          {/* Manual Save Button - only in edit mode */}
+          {/* Commit Button (Meaningful Commit Dialog) - only in edit mode */}
           {canEdit && onSave && (
             <Button
               size="sm"
               variant="outline"
               onClick={onSave}
               className="h-7 px-2.5 text-xs gap-1.5 cursor-pointer font-medium hover:bg-primary hover:text-primary-foreground transition-colors"
-              title="Сохранить изменения (Ctrl+S)"
+              title="Создать осмысленный коммит (Ctrl+S)"
             >
-              <Save className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Сохранить</span>
+              <GitCommit className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Закоммитить</span>
             </Button>
           )}
 
@@ -241,6 +274,15 @@ export function EditorTopbar({
                 <span>Сравнить ветки (Diff)</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              {canEdit && onImportMarkdown && (
+                <DropdownMenuItem
+                  onClick={() => fileInputRef.current?.click()}
+                  className="gap-2 cursor-pointer text-primary focus:text-primary"
+                >
+                  <FileUp className="h-3.5 w-3.5" />
+                  <span>Импортировать (.md, .txt)</span>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={onExportMarkdown} className="gap-2 cursor-pointer">
                 <FileDown className="h-3.5 w-3.5" />
                 <span>Экспорт в Markdown (.md)</span>
@@ -249,6 +291,19 @@ export function EditorTopbar({
                 <Printer className="h-3.5 w-3.5" />
                 <span>Печать / PDF</span>
               </DropdownMenuItem>
+
+              {canEdit && onDeleteDocument && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Удалить документ</span>
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -288,6 +343,41 @@ export function EditorTopbar({
               )}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Document Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Удалить документ?</DialogTitle>
+            <DialogDescription className="text-xs">
+              Вы действительно хотите удалить документ «{title}»? Все ветки, история коммитов и данные будут безвозвратно удалены.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteConfirmOpen(false)}
+              className="text-xs cursor-pointer"
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                onDeleteDocument?.();
+              }}
+              className="text-xs cursor-pointer"
+            >
+              Удалить навсегда
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

@@ -18,6 +18,7 @@ export interface MerkleCommit {
   readonly stateVector: Record<string, number>;
   readonly crdtDeltaStoragePath: string;
   readonly snapshotStoragePath?: string | null;
+  readonly content?: string | null;
 }
 
 export interface DocumentBranch {

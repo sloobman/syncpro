@@ -33,6 +33,7 @@ interface WorkspaceActions {
     title: string;
     workspaceId?: string;
     template?: string;
+    content?: string;
   }) => Promise<Document>;
   updateDocument: (id: string, updates: Partial<Document>) => void;
   deleteDocument: (id: string) => void;
@@ -232,13 +233,17 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ? state.workspaces.find((w) => w.id !== id)?.id || ""
               : state.currentWorkspaceId,
         }));
+        fetch(`/api/workspaces/${id}`, {
+          method: "DELETE",
+          credentials: "include",
+        }).catch(() => {});
       },
 
       createDocument: async (params) => {
         const targetWsId = params.workspaceId || get().currentWorkspaceId;
         const now = new Date().toISOString();
         const docTitle = params.title.trim() || "Новый документ";
-        const initialText = getTemplateContent(params.template, docTitle);
+        const initialText = params.content !== undefined ? params.content : getTemplateContent(params.template, docTitle);
         const wordCount = initialText.split(/\s+/).filter(Boolean).length;
 
         let newDoc: Document;
