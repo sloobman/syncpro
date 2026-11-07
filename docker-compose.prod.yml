@@ -25,6 +25,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - JWT_SECRET=${JWT_SECRET:?JWT secret is required}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=${POSTGRES_DB:-syncpro_prod}
@@ -72,7 +73,6 @@ services:
     image: elestio/minio:latest
     container_name: syncpro-prod-minio
     restart: unless-stopped
-    user: "0:0"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:?S3 access key required}

@@ -3,12 +3,20 @@ import { UserRepository } from "@/lib/auth/user-repository";
 import { hashPassword } from "@/lib/auth/password";
 import { signToken } from "@/lib/auth/jwt";
 
+// Server-side email validation regex (RFC 5322 simplified)
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+// Password complexity: min 8 chars, at least 1 uppercase, 1 digit, 1 special char
+const PASSWORD_UPPERCASE = /[A-Z]/;
+const PASSWORD_DIGIT = /\d/;
+const PASSWORD_SPECIAL = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { name, email, password } = body;
 
-    if (!email || typeof email !== "string" || !email.includes("@")) {
+    if (!email || typeof email !== "string" || !EMAIL_REGEX.test(email)) {
       return NextResponse.json(
         { error: "Некорректный email адрес" },
         { status: 400 }
@@ -18,6 +26,27 @@ export async function POST(request: NextRequest) {
     if (!password || typeof password !== "string" || password.length < 8) {
       return NextResponse.json(
         { error: "Пароль должен содержать минимум 8 символов" },
+        { status: 400 }
+      );
+    }
+
+    if (!PASSWORD_UPPERCASE.test(password)) {
+      return NextResponse.json(
+        { error: "Пароль должен содержать хотя бы одну заглавную букву" },
+        { status: 400 }
+      );
+    }
+
+    if (!PASSWORD_DIGIT.test(password)) {
+      return NextResponse.json(
+        { error: "Пароль должен содержать хотя бы одну цифру" },
+        { status: 400 }
+      );
+    }
+
+    if (!PASSWORD_SPECIAL.test(password)) {
+      return NextResponse.json(
+        { error: "Пароль должен содержать хотя бы один спецсимвол" },
         { status: 400 }
       );
     }
@@ -52,8 +81,9 @@ export async function POST(request: NextRequest) {
       role: safeUser.role,
     });
 
+    // Return user info without token in body — token is only in HTTP-only cookie
     const response = NextResponse.json(
-      { user: safeUser, token },
+      { user: safeUser },
       { status: 201 }
     );
 
@@ -68,7 +98,7 @@ export async function POST(request: NextRequest) {
 
     return response;
   } catch (error) {
-    console.error("[API Auth Register Error]:", error);
+    console.error("[API Auth Register Error]:", (error as Error).message);
     return NextResponse.json(
       { error: "Внутренняя ошибка сервера при регистрации" },
       { status: 500 }

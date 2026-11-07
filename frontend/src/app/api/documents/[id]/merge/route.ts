@@ -2,14 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { computeCommitHash } from "@/lib/merkle-dag/hash";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { MerkleDAGRepository } from "@/lib/db/dag-repository";
+import { getUserFromRequest } from "@/lib/auth/jwt";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
+  }
+
   const { id } = await params;
   const body = await request.json();
-  const { sourceBranch, targetBranch, baseCommitId, sourceCommitId, targetCommitId, author } = body;
+  const { sourceBranch, targetBranch, baseCommitId, sourceCommitId, targetCommitId } = body;
 
   if (!sourceBranch || !targetBranch) {
     return NextResponse.json(
@@ -31,9 +37,9 @@ export async function POST(
     stateVector: {},
     message: `Merge branch '${sourceBranch}' into '${targetBranch}' via 3-Way CRDT Merge`,
     author: {
-      userId: author?.userId || "00000000-0000-0000-0000-000000000000",
-      name: author?.name || "SyncPro 3-Way Merge Engine",
-      avatarUrl: author?.avatarUrl ?? null,
+      userId: user.id,
+      name: user.name,
+      avatarUrl: null,
     },
     timestamp: Date.now(),
     branch: targetBranch,

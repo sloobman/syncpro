@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRedisClient } from "@/lib/db/redis";
+import { getUserFromRequest } from "@/lib/auth/jwt";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
+  }
+
   const { id } = await params;
   const key = `syncpro:awareness:${id}`;
 
@@ -47,6 +53,11 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
+  }
+
   const { id } = await params;
   const body = await request.json();
   const { clientId, state } = body;

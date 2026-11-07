@@ -1,5 +1,3 @@
-import { useAuthStore } from '@/lib/stores/auth-store';
-
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api';
 
@@ -33,14 +31,6 @@ function buildUrl(
   return url.toString();
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().accessToken;
-  if (token) {
-    return { Authorization: `Bearer ${token}` };
-  }
-  return {};
-}
-
 async function request<T>(
   method: string,
   path: string,
@@ -52,7 +42,6 @@ async function request<T>(
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...getAuthHeaders(),
     ...(customHeaders as Record<string, string>),
   };
 
@@ -60,6 +49,7 @@ async function request<T>(
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    credentials: 'include',
     ...restOptions,
   });
 

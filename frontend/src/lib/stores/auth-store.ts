@@ -4,7 +4,6 @@ import type { User } from "@/types";
 
 interface AuthState {
   user: User | null;
-  accessToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
 }
@@ -30,7 +29,6 @@ export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
       user: null,
-      accessToken: null,
       isAuthenticated: false,
       isLoading: false,
 
@@ -40,6 +38,7 @@ export const useAuthStore = create<AuthStore>()(
           const res = await fetch("/api/auth/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({ email, password }),
           });
 
@@ -50,7 +49,6 @@ export const useAuthStore = create<AuthStore>()(
 
           set({
             user: data.user,
-            accessToken: data.token,
             isAuthenticated: true,
             isLoading: false,
           });
@@ -66,6 +64,7 @@ export const useAuthStore = create<AuthStore>()(
           const res = await fetch("/api/auth/register", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify(data),
           });
 
@@ -76,7 +75,6 @@ export const useAuthStore = create<AuthStore>()(
 
           set({
             user: resData.user,
-            accessToken: resData.token,
             isAuthenticated: true,
             isLoading: false,
           });
@@ -95,6 +93,7 @@ export const useAuthStore = create<AuthStore>()(
           const res = await fetch("/api/auth/oauth", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "include",
             body: JSON.stringify({
               provider,
               name: profile?.name || defaultName,
@@ -109,7 +108,6 @@ export const useAuthStore = create<AuthStore>()(
 
           set({
             user: data.user,
-            accessToken: data.token,
             isAuthenticated: true,
             isLoading: false,
           });
@@ -121,13 +119,12 @@ export const useAuthStore = create<AuthStore>()(
 
       logout: async () => {
         try {
-          await fetch("/api/auth/logout", { method: "POST" });
+          await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
         } catch {
           // ignore network failure on logout
         } finally {
           set({
             user: null,
-            accessToken: null,
             isAuthenticated: false,
             isLoading: false,
           });
@@ -164,14 +161,14 @@ export const useAuthStore = create<AuthStore>()(
 
       checkAuth: async () => {
         try {
-          const res = await fetch("/api/auth/me");
+          const res = await fetch("/api/auth/me", { credentials: "include" });
           if (res.ok) {
             const data = await res.json();
             if (data.user) {
               set({ user: data.user, isAuthenticated: true });
             }
           } else if (res.status === 401) {
-            set({ user: null, isAuthenticated: false, accessToken: null });
+            set({ user: null, isAuthenticated: false });
             if (typeof window !== "undefined") {
               localStorage.removeItem("syncpro-auth");
             }
@@ -185,7 +182,6 @@ export const useAuthStore = create<AuthStore>()(
       name: "syncpro-auth",
       partialize: (state) => ({
         user: state.user,
-        accessToken: state.accessToken,
         isAuthenticated: state.isAuthenticated,
       }),
     }

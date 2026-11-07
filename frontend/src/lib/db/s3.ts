@@ -14,16 +14,20 @@ export const BUCKET_SNAPSHOTS = process.env.S3_BUCKET_SNAPSHOTS || "syncpro-snap
 export function getS3Client(): S3Client {
   if (!s3Client) {
     const endpoint = process.env.S3_ENDPOINT || "http://minio:9000";
-    const accessKeyId = process.env.S3_ACCESS_KEY || "syncpro_s3_root_admin";
-    const secretAccessKey = process.env.S3_SECRET_KEY || "syncpro_secret";
     const region = process.env.AWS_REGION || "us-east-1";
+
+    if (!process.env.S3_ACCESS_KEY || !process.env.S3_SECRET_KEY) {
+      throw new Error(
+        "[SECURITY] S3_ACCESS_KEY and S3_SECRET_KEY environment variables are required."
+      );
+    }
 
     s3Client = new S3Client({
       endpoint,
       region,
       credentials: {
-        accessKeyId,
-        secretAccessKey,
+        accessKeyId: process.env.S3_ACCESS_KEY,
+        secretAccessKey: process.env.S3_SECRET_KEY,
       },
       forcePathStyle: true, // Crucial for MinIO and self-hosted S3
     });
@@ -81,7 +85,7 @@ export async function getS3Object(
     const byteArray = await response.Body.transformToByteArray();
     return byteArray;
   } catch (error) {
-    console.error(`[S3 Get Error] ${bucket}/${key}:`, error);
+    console.error(`[S3 Get Error] ${bucket}/${key}:`, (error as Error).message);
     return null;
   }
 }
