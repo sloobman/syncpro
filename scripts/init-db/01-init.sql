@@ -117,13 +117,27 @@ CREATE TABLE IF NOT EXISTS branches (
     PRIMARY KEY (document_id, name)
 );
 
--- 6. Indexes for Fast Traversal & Topological Ordering
+-- 6. Notifications Table (Production-grade user activity & alerts)
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT NOT NULL,
+    type VARCHAR(32) NOT NULL DEFAULT 'system',
+    link TEXT,
+    read BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id, read);
+
+-- 7. Indexes for Fast Traversal & Topological Ordering
 CREATE INDEX IF NOT EXISTS idx_commits_doc ON commits(document_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_commit_parents_parent ON commit_parents(parent_commit_id);
 CREATE INDEX IF NOT EXISTS idx_branches_doc ON branches(document_id);
 CREATE INDEX IF NOT EXISTS idx_documents_workspace ON documents(workspace_id);
 
--- 7. Grant Permissions (principle of least privilege)
+-- 8. Grant Permissions (principle of least privilege)
 -- Only grant necessary permissions to the application user
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO syncpro_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO syncpro_user;
