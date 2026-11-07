@@ -15,6 +15,7 @@ import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/lib/stores/ui-store";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 const INITIAL_COMMITS: MerkleCommit[] = [
   {
@@ -78,7 +79,55 @@ interface EditorShellProps {
   documentId?: string;
 }
 
-export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
+function initCRDTFromMarkdown(doc: CRDTDocument, markdownText: string) {
+  const paragraphs = markdownText
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) {
+    const b = doc.createBlock(null, "paragraph", "a");
+    doc.insertText(b.id, 0, "");
+    return;
+  }
+
+  paragraphs.forEach((p, index) => {
+    const orderKey = String.fromCharCode(97 + (index % 26)).repeat(
+      Math.floor(index / 26) + 1
+    );
+    let type: BlockType = "paragraph";
+    let content = p;
+
+    if (p.startsWith("# ")) {
+      type = "heading1";
+      content = p.slice(2).trim();
+    } else if (p.startsWith("## ")) {
+      type = "heading2";
+      content = p.slice(3).trim();
+    } else if (p.startsWith("### ")) {
+      type = "heading3";
+      content = p.slice(4).trim();
+    }
+
+    const b = doc.createBlock(null, type, orderKey);
+    doc.insertText(b.id, 0, content);
+  });
+}
+
+function serializeCRDTToMarkdown(doc: CRDTDocument): string {
+  const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
+  return activeBlocks
+    .map((b) => {
+      const text = doc.getBlockText(b.id);
+      if (b.blockType === "heading1") return `# ${text}`;
+      if (b.blockType === "heading2") return `## ${text}`;
+      if (b.blockType === "heading3") return `### ${text}`;
+      return text;
+    })
+    .join("\n\n");
+}
+
+export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const { canvasWidth } = useUIStore();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [commits, setCommits] = useState<MerkleCommit[]>(INITIAL_COMMITS);
@@ -94,38 +143,40 @@ export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
     "dev",
     "feature/crdt-ordering",
   ]);
-  const [title, setTitle] = useState("Глава 1: Введение в системы совместного редактирования");
+
+  const [title, setTitle] = useState(() => {
+    if (typeof window === "undefined") return "Новый документ";
+    const store = useWorkspaceStore.getState();
+    const docMeta = store.getDocumentById(documentId);
+    return (
+      docMeta?.title ||
+      (documentId === "doc_1"
+        ? "Глава 1: Введение в системы совместного редактирования"
+        : "Новый документ")
+    );
+  });
   const [blocksState, setBlocksState] = useState<BlockNode[]>([]);
   const [blockTexts, setBlockTexts] = useState<Record<string, string>>({});
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
 
-  // CRDT Document instance
+  // CRDT Document instance & save timer ref
   const docRef = useRef<CRDTDocument | null>(null);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize document with default chapter if first load
+  // Initialize document from persistent store
   useEffect(() => {
+    const store = useWorkspaceStore.getState();
+    const docMeta = store.getDocumentById(documentId);
+    const savedContent = store.getDocumentContent(documentId);
+
+    const docTitle = docMeta?.title || (documentId === "doc_1" ? "Глава 1: Введение в системы совместного редактирования" : "Новый документ");
+
     const doc = new CRDTDocument(1);
     docRef.current = doc;
 
-    const b1 = doc.createBlock(null, "heading1", "a");
-    doc.insertText(b1.id, 0, "Глава 1: Введение в системы совместного редактирования");
-
-    const b2 = doc.createBlock(null, "paragraph", "b");
-    doc.insertText(
-      b2.id,
-      0,
-      "Совместное редактирование документов в реальном времени является одной из ключевых технологических задач современных распределённых систем. В отличие от традиционных централизованных блокировок, современные архитектуры опираются на бессерверную или гибридную репликацию данных без централизованного арбитра разрешения конфликтов."
-    );
-
-    const b3 = doc.createBlock(null, "heading2", "c");
-    doc.insertText(b3.id, 0, "1.1. Архитектурный стиль Merkle-CRDT");
-
-    const b4 = doc.createBlock(null, "paragraph", "d");
-    doc.insertText(
-      b4.id,
-      0,
-      "Платформа SyncPro совмещает математическое ядро Conflict-free Replicated Data Types (CRDT) на базе алгоритмов YATA и Fugue с графом контроля версий Merkle-DAG. Каждый символ и блок текста идентифицируются неизменяемым кортежем из идентификатора клиента и логических часов Лампорта."
-    );
+    const initialContent = savedContent || (documentId === "doc_1" ? store.getDocumentContent("doc_1") : `# ${docTitle}\n\nНачните редактирование документа...`);
+    initCRDTFromMarkdown(doc, initialContent);
 
     const refreshBlocks = () => {
       const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
@@ -143,51 +194,152 @@ export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
     });
 
     refreshBlocks();
+
+    // Try fetching from server in background if available
+    fetch(`/api/documents/${documentId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.document?.title) {
+          setTitle(data.document.title);
+        }
+      })
+      .catch(() => {});
   }, [documentId]);
 
-  // Handle text input modification inside a block
-  const handleTextChange = useCallback((blockId: ID, newText: string) => {
+  // Debounced auto-save function
+  const triggerAutoSave = useCallback(
+    (newTitle?: string) => {
+      const doc = docRef.current;
+      if (!doc) return;
+
+      setSaveStatus("saving");
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      saveTimeoutRef.current = setTimeout(() => {
+        const markdown = serializeCRDTToMarkdown(doc);
+        const currentTitle = newTitle ?? title;
+        useWorkspaceStore.getState().saveDocumentContent(documentId, markdown, currentTitle);
+        setSaveStatus("saved");
+      }, 400);
+    },
+    [documentId, title]
+  );
+
+  // Manual save handler (Save button / Ctrl+S)
+  const handleManualSave = useCallback(async () => {
     const doc = docRef.current;
     if (!doc) return;
 
-    const current = doc.getBlockText(blockId);
-    if (newText === current) return;
-
-    if (newText.startsWith(current)) {
-      const added = newText.slice(current.length);
-      doc.insertText(blockId, current.length, added);
-    } else {
-      const currentLen = current.length;
-      if (currentLen > 0) {
-        doc.deleteText(blockId, 0, currentLen);
-      }
-      if (newText.length > 0) {
-        doc.insertText(blockId, 0, newText);
-      }
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
     }
-  }, []);
+    setSaveStatus("saving");
+
+    const markdown = serializeCRDTToMarkdown(doc);
+    useWorkspaceStore.getState().saveDocumentContent(documentId, markdown, title);
+
+    // Create Merkle commit on server
+    try {
+      await fetch(`/api/documents/${documentId}/commits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branch,
+          parents: [currentCommitId],
+          stateVector: { crdt_clock: 1 },
+          patch: { ops: [] },
+          message: `Сохранение документа: ${title}`,
+        }),
+      });
+    } catch {
+      // offline / guest
+    }
+
+    setSaveStatus("saved");
+  }, [documentId, title, branch, currentCommitId]);
+
+  // Keyboard shortcut Ctrl+S / Cmd+S
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleManualSave();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleManualSave]);
+
+  // Handle title changes
+  const handleTitleChange = useCallback(
+    (newTitle: string) => {
+      setTitle(newTitle);
+      useWorkspaceStore.getState().updateDocument(documentId, { title: newTitle });
+      triggerAutoSave(newTitle);
+    },
+    [documentId, triggerAutoSave]
+  );
+
+  // Handle text input modification inside a block
+  const handleTextChange = useCallback(
+    (blockId: ID, newText: string) => {
+      const doc = docRef.current;
+      if (!doc) return;
+
+      const current = doc.getBlockText(blockId);
+      if (newText === current) return;
+
+      if (newText.startsWith(current)) {
+        const added = newText.slice(current.length);
+        doc.insertText(blockId, current.length, added);
+      } else {
+        const currentLen = current.length;
+        if (currentLen > 0) {
+          doc.deleteText(blockId, 0, currentLen);
+        }
+        if (newText.length > 0) {
+          doc.insertText(blockId, 0, newText);
+        }
+      }
+
+      triggerAutoSave();
+    },
+    [triggerAutoSave]
+  );
 
   // Add a new block to the CRDT tree
-  const handleAddBlock = useCallback((type: BlockType = "paragraph", initialText?: string) => {
-    const doc = docRef.current;
-    if (!doc) return;
+  const handleAddBlock = useCallback(
+    (type: BlockType = "paragraph", initialText?: string) => {
+      const doc = docRef.current;
+      if (!doc) return;
 
-    const rootBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
-    const lastKey = rootBlocks.length > 0 ? rootBlocks[rootBlocks.length - 1].orderKey : null;
-    const nextKey = lastKey ? `${lastKey}z` : "m";
+      const rootBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
+      const lastKey = rootBlocks.length > 0 ? rootBlocks[rootBlocks.length - 1].orderKey : null;
+      const nextKey = lastKey ? `${lastKey}z` : "m";
 
-    const block = doc.createBlock(null, type, nextKey);
-    const defaultText = initialText ?? (type.startsWith("heading") ? "Новый заголовок" : "Новый абзац документа...");
-    doc.insertText(block.id, 0, defaultText);
-    setActiveBlockId(formatID(block.id));
-  }, []);
+      const block = doc.createBlock(null, type, nextKey);
+      const defaultText =
+        initialText ?? (type.startsWith("heading") ? "Новый заголовок" : "Новый абзац документа...");
+      doc.insertText(block.id, 0, defaultText);
+      setActiveBlockId(formatID(block.id));
+
+      triggerAutoSave();
+    },
+    [triggerAutoSave]
+  );
 
   // Delete a block from the CRDT tree
-  const handleDeleteBlock = useCallback((blockId: ID) => {
-    const doc = docRef.current;
-    if (!doc) return;
-    doc.deleteBlock(blockId);
-  }, []);
+  const handleDeleteBlock = useCallback(
+    (blockId: ID) => {
+      const doc = docRef.current;
+      if (!doc) return;
+      doc.deleteBlock(blockId);
+      triggerAutoSave();
+    },
+    [triggerAutoSave]
+  );
 
   // Toolbar action execution
   const handleToolbarAction = useCallback(
@@ -201,7 +353,6 @@ export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
         return;
       }
 
-      // Find targeted block or default to first/last
       const targetBlock = activeBlockId
         ? activeBlocks.find((b) => formatID(b.id) === activeBlockId) || activeBlocks[0]
         : activeBlocks[activeBlocks.length - 1];
@@ -215,15 +366,19 @@ export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
           break;
         case "bold":
           doc.insertText(targetBlock.id, currentText.length, " **жирный текст**");
+          triggerAutoSave();
           break;
         case "italic":
           doc.insertText(targetBlock.id, currentText.length, " *курсив*");
+          triggerAutoSave();
           break;
         case "underline":
           doc.insertText(targetBlock.id, currentText.length, " <u>подчёркнутый текст</u>");
+          triggerAutoSave();
           break;
         case "strike":
           doc.insertText(targetBlock.id, currentText.length, " ~~зачёркнутый текст~~");
+          triggerAutoSave();
           break;
         case "h1":
           handleAddBlock("heading1", "Новый раздел");
@@ -247,13 +402,18 @@ export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
           handleAddBlock("paragraph", "> Важная цитата или примечание команды");
           break;
         case "code":
-          handleAddBlock("paragraph", "```ts\n// Код или конфигурация\nconst config = { mode: 'sync' };\n```");
+          handleAddBlock(
+            "paragraph",
+            "```ts\n// Код или конфигурация\nconst config = { mode: 'sync' };\n```"
+          );
           break;
         case "link":
           doc.insertText(targetBlock.id, currentText.length, " [Ссылка на ресурс](https://syncpro.dev)");
+          triggerAutoSave();
           break;
         case "image":
           doc.insertText(targetBlock.id, currentText.length, " ![Схема](https://syncpro.dev/diagram.png)");
+          triggerAutoSave();
           break;
         case "table":
           handleAddBlock(
@@ -263,7 +423,7 @@ export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
           break;
       }
     },
-    [activeBlockId, handleAddBlock]
+    [activeBlockId, handleAddBlock, triggerAutoSave]
   );
 
   // Export handlers
@@ -371,7 +531,7 @@ export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
     <div className="flex flex-col h-screen w-full overflow-hidden bg-background">
       <EditorTopbar
         title={title}
-        onTitleChange={setTitle}
+        onTitleChange={handleTitleChange}
         currentBranch={branch}
         branches={branches}
         onSelectBranch={handleSelectBranch}
@@ -380,6 +540,8 @@ export function EditorShell({ documentId = "doc-default" }: EditorShellProps) {
         onExportPdf={handleExportPdf}
         onToggleHistory={() => setSidebarOpen(true)}
         onToggleDiff={() => setIsDiffOpen(!isDiffOpen)}
+        saveStatus={saveStatus}
+        onSave={handleManualSave}
       />
 
       <EditorToolbar onAction={handleToolbarAction} />

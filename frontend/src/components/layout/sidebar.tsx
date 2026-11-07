@@ -18,24 +18,18 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { CreateWorkspaceDialog } from "@/components/dashboard/create-workspace-dialog";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { cn } from "@/lib/utils";
-
-const mockWorkspaces = [
-  { id: "ws_1", name: "Мой проект", emoji: "🚀" },
-  { id: "ws_2", name: "Команда разработки", emoji: "⚡" },
-];
-
-const mockRecentDocs = [
-  { id: "doc_1", title: "Глава 1: Введение", workspace: "Мой проект" },
-  { id: "doc_2", title: "Архитектура Merkle-CRDT", workspace: "Команда разработки" },
-  { id: "doc_3", title: "Roadmap Q4 2026", workspace: "Мой проект" },
-];
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { sidebarCollapsed, collapseSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const documents = useWorkspaceStore((state) => state.documents);
+
+  const recentDocs = documents.slice(0, 5);
 
   const handleLogout = async () => {
     await logout();
@@ -123,7 +117,7 @@ export function Sidebar() {
             </div>
           )}
           <div className="space-y-1">
-            {mockWorkspaces.map((ws) => {
+            {workspaces.map((ws) => {
               const active = pathname.includes(`/dashboard/workspace/${ws.id}`);
               return (
                 <Link key={ws.id} href={`/dashboard/workspace/${ws.id}`}>
@@ -136,7 +130,7 @@ export function Sidebar() {
                       sidebarCollapsed && "justify-center px-0"
                     )}
                   >
-                    <span className="text-base shrink-0">{ws.emoji}</span>
+                    <span className="text-base shrink-0">{ws.iconEmoji || "📁"}</span>
                     {!sidebarCollapsed && <span className="truncate">{ws.name}</span>}
                   </span>
                 </Link>
@@ -155,7 +149,7 @@ export function Sidebar() {
             </div>
           )}
           <div className="space-y-1">
-            {mockRecentDocs.map((doc) => (
+            {recentDocs.map((doc) => (
               <Link key={doc.id} href={`/doc/${doc.id}`}>
                 <span
                   className={cn(
@@ -163,7 +157,7 @@ export function Sidebar() {
                     sidebarCollapsed && "justify-center px-0"
                   )}
                 >
-                  <FileText className="h-3.5 w-3.5 shrink-0" />
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   {!sidebarCollapsed && <span className="truncate">{doc.title}</span>}
                 </span>
               </Link>
@@ -178,6 +172,7 @@ export function Sidebar() {
           <span
             className={cn(
               "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer",
+              pathname.startsWith("/settings") && "bg-accent text-accent-foreground",
               sidebarCollapsed && "justify-center px-0"
             )}
           >
@@ -186,26 +181,27 @@ export function Sidebar() {
           </span>
         </Link>
 
+        {/* User Card & Logout */}
         <div
           className={cn(
-            "flex items-center justify-between px-2 py-2 rounded-lg bg-muted/40",
-            sidebarCollapsed && "justify-center px-0"
+            "flex items-center justify-between p-2 rounded-xl bg-muted/40 border border-border/40 mt-1",
+            sidebarCollapsed && "justify-center p-1"
           )}
         >
           <div className="flex items-center gap-2.5 min-w-0">
-            <Avatar className="h-8 w-8 shrink-0">
-              <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+            <Avatar className="h-7 w-7 rounded-lg ring-1 ring-border">
+              <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
                 {initials}
               </AvatarFallback>
             </Avatar>
             {!sidebarCollapsed && (
-              <div className="flex flex-col min-w-0">
-                <span className="text-xs font-medium text-foreground truncate">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-foreground truncate">
                   {displayName}
-                </span>
-                <span className="text-[10px] text-muted-foreground truncate">
+                </p>
+                <p className="text-[10px] text-muted-foreground truncate">
                   {displayEmail}
-                </span>
+                </p>
               </div>
             )}
           </div>
@@ -214,8 +210,8 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 cursor-pointer shrink-0"
               onClick={handleLogout}
-              className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
               title="Выйти из аккаунта"
             >
               <LogOut className="h-3.5 w-3.5" />

@@ -12,8 +12,10 @@ import {
   Printer,
   History,
   FileDiff,
-  Copy,
+  Save,
   Check,
+  Copy,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BranchSelector } from "@/components/editor/branch-selector";
@@ -52,10 +54,12 @@ export interface EditorTopbarProps {
   onExportPdf?: () => void;
   onToggleHistory?: () => void;
   onToggleDiff?: () => void;
+  saveStatus?: "saved" | "saving" | "unsaved";
+  onSave?: () => void;
 }
 
 export function EditorTopbar({
-  title = "Глава 1: Введение в системы совместного редактирования",
+  title = "Новый документ",
   onTitleChange,
   currentBranch = "main",
   branches = ["main", "dev", "feature/crdt-ordering"],
@@ -65,16 +69,12 @@ export function EditorTopbar({
   onExportPdf,
   onToggleHistory,
   onToggleDiff,
+  saveStatus = "saved",
+  onSave,
 }: EditorTopbarProps) {
-  const [isFavorite, setIsFavorite] = useState(true);
-  const [localTitle, setLocalTitle] = useState(title);
+  const [isFavorite, setIsFavorite] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  const handleTitleChange = (val: string) => {
-    setLocalTitle(val);
-    if (onTitleChange) onTitleChange(val);
-  };
 
   const handleCopyShareLink = () => {
     if (typeof window !== "undefined") {
@@ -102,9 +102,9 @@ export function EditorTopbar({
 
           <div className="flex items-center gap-1.5 min-w-0">
             <input
-              value={localTitle}
-              onChange={(e) => handleTitleChange(e.target.value)}
-              className="text-xs sm:text-sm font-semibold text-foreground bg-transparent border-0 focus:outline-none focus:ring-1 focus:ring-primary rounded px-1.5 py-0.5 truncate max-w-[180px] sm:max-w-xs md:max-w-md"
+              value={title}
+              onChange={(e) => onTitleChange?.(e.target.value)}
+              className="text-xs sm:text-sm font-semibold text-foreground bg-transparent border border-transparent hover:border-border focus:border-primary focus:bg-background/80 rounded px-1.5 py-0.5 truncate max-w-[180px] sm:max-w-xs md:max-w-md transition-colors"
               title="Нажмите, чтобы переименовать"
             />
 
@@ -134,10 +134,39 @@ export function EditorTopbar({
 
         {/* Right controls */}
         <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          {/* Save status badge */}
           <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-muted-foreground pr-1">
-            <Cloud className="h-3.5 w-3.5 text-emerald-500" />
-            <span>Сохранено</span>
+            {saveStatus === "saving" ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 text-amber-500 animate-spin" />
+                <span className="text-amber-500">Сохранение...</span>
+              </>
+            ) : saveStatus === "saved" ? (
+              <>
+                <Cloud className="h-3.5 w-3.5 text-emerald-500" />
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">Сохранено</span>
+              </>
+            ) : (
+              <>
+                <Cloud className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>Не сохранено</span>
+              </>
+            )}
           </div>
+
+          {/* Manual Save Button */}
+          {onSave && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onSave}
+              className="h-7 px-2.5 text-xs gap-1.5 cursor-pointer font-medium hover:bg-primary hover:text-primary-foreground transition-colors"
+              title="Сохранить изменения (Ctrl+S)"
+            >
+              <Save className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Сохранить</span>
+            </Button>
+          )}
 
           <PresenceAvatars users={mockOnlineUsers} />
 
@@ -171,23 +200,23 @@ export function EditorTopbar({
                 onClick={onExportPdf}
                 className="flex items-center gap-2 cursor-pointer"
               >
-                <Printer className="h-3.5 w-3.5 text-blue-500" />
-                <span>Печать / Экспорт в PDF</span>
+                <Printer className="h-3.5 w-3.5 text-primary" />
+                <span>Печать / Сохранить в PDF</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={onToggleHistory}
                 className="flex items-center gap-2 cursor-pointer"
               >
-                <History className="h-3.5 w-3.5 text-violet-500" />
-                <span>История версий (DAG)</span>
+                <History className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>История коммитов (DAG)</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={onToggleDiff}
                 className="flex items-center gap-2 cursor-pointer"
               >
-                <FileDiff className="h-3.5 w-3.5 text-amber-500" />
-                <span>Сравнить ветки (Diff)</span>
+                <FileDiff className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>Сравнение веток (Diff)</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -196,37 +225,39 @@ export function EditorTopbar({
 
       {/* Share Dialog */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Поделиться документом</DialogTitle>
             <DialogDescription>
-              Любой пользователь с этой ссылкой сможет совместно редактировать документ
+              Любой участник по этой ссылке сможет просматривать и редактировать документ
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-3">
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-foreground">Ссылка на документ</p>
-              <div className="flex gap-2">
-                <Input
-                  readOnly
-                  value={typeof window !== "undefined" ? window.location.href : ""}
-                  className="text-xs font-mono bg-muted/40"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={handleCopyShareLink}
-                  className="shrink-0 cursor-pointer"
-                  title="Скопировать ссылку"
-                >
-                  {copied ? (
-                    <Check className="h-4 w-4 text-emerald-500" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </Button>
-              </div>
+
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-2">
+              <Input
+                readOnly
+                value={typeof window !== "undefined" ? window.location.href : ""}
+                className="text-xs font-mono"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCopyShareLink}
+                className="shrink-0 gap-1.5"
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    Скопировано
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" />
+                    Копировать
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </DialogContent>
