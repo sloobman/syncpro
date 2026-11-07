@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BranchGraphView } from "@/components/editor/branch-graph-view";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
@@ -33,6 +34,7 @@ const INITIAL_HEADINGS: HeadingItem[] = [
 interface CommentItem {
   id: string;
   author: string;
+  avatarUrl?: string | null;
   time: string;
   text: string;
 }
@@ -41,12 +43,14 @@ const INITIAL_COMMENTS: CommentItem[] = [
   {
     id: "c1",
     author: "Алиса",
+    avatarUrl: null,
     time: "10 мин назад",
     text: "Нужно уточнить размер буфера Redis Streams для синхронизации.",
   },
   {
     id: "c2",
     author: "Боб",
+    avatarUrl: null,
     time: "1 час назад",
     text: "Добавил спецификацию 3-Way CRDT Merge в секцию 2.",
   },
@@ -86,6 +90,7 @@ export function EditorSidebar({
     const newComment: CommentItem = {
       id: `c_${Date.now()}`,
       author: user?.name || "Вы",
+      avatarUrl: user?.avatarUrl || null,
       time: "Только что",
       text: commentText.trim(),
     };
@@ -173,16 +178,26 @@ export function EditorSidebar({
           <ScrollArea className="flex-1 p-3">
             <div className="space-y-3">
               {comments.map((c) => (
-                <div key={c.id} className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1">
+                <div key={c.id} className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">
-                      {c.author}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Avatar className="h-5 w-5 shrink-0">
+                        {c.avatarUrl ? (
+                          <AvatarImage src={c.avatarUrl} alt={c.author} className="object-cover" />
+                        ) : null}
+                        <AvatarFallback className="text-[10px] bg-primary/10 text-primary font-medium">
+                          {c.author.slice(0, 1).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-xs font-semibold text-foreground truncate">
+                        {c.author}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
                       {c.time}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
+                  <p className="text-xs text-muted-foreground leading-relaxed pl-7">
                     {c.text}
                   </p>
                 </div>

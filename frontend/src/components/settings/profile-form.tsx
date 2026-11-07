@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, Trash2, Check, AlertTriangle } from "lucide-react";
+import { Camera, Trash2, Check, AlertTriangle, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +25,59 @@ import {
 } from "@/components/ui/dialog";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
-export function ProfileForm() {
+function resizeImageToDataUrl(file: File, maxSize = 256): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Выбранный файл должен быть изображением (JPG, PNG, WebP)"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const minSide = Math.min(img.width, img.height);
+          const startX = (img.width - minSide) / 2;
+          const startY = (img.height - minSide) / 2;
+
+          const outputSize = Math.min(minSide, maxSize);
+          canvas.width = outputSize;
+          canvas.height = outputSize;
+
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("Не удалось инициализировать холст"));
+            return;
+          }
+
+          ctx.drawImage(
+            img,
+            startX,
+            startY,
+            minSide,
+            minSide,
+            0,
+            0,
+            outputSize,
+            outputSize
+          );
+
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          resolve(dataUrl);
+        } catch {
+          reject(new Error("Ошибка при обработке изображения"));
+        }
+      };
+      img.onerror = () => reject(new Error("Не удалось прочитать изображение"));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error("Ошибка чтения файла"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function ProfileFormInner() {
   const router = useRouter();
   const { user, updateProfile, logout } = useAuthStore();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -38,45 +90,71 @@ export function ProfileForm() {
   const [locale, setLocale] = useState<"ru" | "en">(user?.locale || "ru");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [isProcessingAvatar, setIsProcessingAvatar] = useState(false);
 
-  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        setAvatarUrl(result);
-        updateProfile({ avatarUrl: result });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setIsProcessingAvatar(true);
+    setError(null);
+    try {
+      const resizedDataUrl = await resizeImageToDataUrl(file, 256);
+      setAvatarUrl(resizedDataUrl);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Не удалось обработать изображение");
+    } finally {
+      setIsProcessingAvatar(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setAvatarUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setError(null);
+
     try {
       const res = await fetch("/api/auth/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name, avatarUrl }),
+        body: JSON.stringify({
+          name: name.trim(),
+          avatarUrl: avatarUrl || null,
+        }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.user) {
-          updateProfile({ name: data.user.name, avatarUrl, timezone, locale });
-        }
-      } else {
-        updateProfile({ name, avatarUrl, timezone, locale });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.error || "Не удалось сохранить профиль");
       }
+
+      if (data.user) {
+        updateProfile({
+          name: data.user.name,
+          avatarUrl: data.user.avatarUrl,
+          timezone,
+          locale,
+        });
+      }
+
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch {
-      updateProfile({ name, avatarUrl, timezone, locale });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Ошибка при сохранении данных");
     } finally {
       setSaving(false);
     }
@@ -94,21 +172,33 @@ export function ProfileForm() {
   return (
     <>
       <form onSubmit={handleSave} className="space-y-6 max-w-xl">
+        {/* Error notification */}
+        {error && (
+          <div className="flex items-center gap-2 p-3 rounded-xl border border-destructive/20 bg-destructive/10 text-destructive text-xs font-medium">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
         {/* Hidden file input */}
         <input
           type="file"
           ref={fileInputRef}
           onChange={handleAvatarFileChange}
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           className="hidden"
         />
 
         {/* Avatar block */}
         <div className="flex items-center gap-4">
-          <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-            <Avatar className="h-16 w-16 border-2 border-border">
+          <div
+            className="relative group cursor-pointer"
+            onClick={() => fileInputRef.current?.click()}
+            title="Сменить фото профиля"
+          >
+            <Avatar className="h-16 w-16 border-2 border-border shadow-sm">
               {avatarUrl ? (
-                <AvatarImage src={avatarUrl} alt={name} />
+                <AvatarImage src={avatarUrl} alt={name} className="object-cover" />
               ) : null}
               <AvatarFallback className="text-lg bg-primary/10 text-primary font-bold">
                 {initials}
@@ -116,23 +206,50 @@ export function ProfileForm() {
             </Avatar>
             <div
               className="absolute inset-0 bg-black/50 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Сменить аватар"
             >
               <Camera className="h-5 w-5" />
             </div>
           </div>
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              className="h-8 text-xs cursor-pointer"
-            >
-              Загрузить фото
-            </Button>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              JPG, PNG или WebP. До 2MB.
+
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isProcessingAvatar || saving}
+                onClick={() => fileInputRef.current?.click()}
+                className="h-8 text-xs cursor-pointer gap-1.5"
+              >
+                {isProcessingAvatar ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Сжатие...</span>
+                  </>
+                ) : (
+                  <>
+                    <Camera className="h-3.5 w-3.5" />
+                    <span>{avatarUrl ? "Заменить фото" : "Загрузить фото"}</span>
+                  </>
+                )}
+              </Button>
+
+              {avatarUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={isProcessingAvatar || saving}
+                  onClick={handleRemoveAvatar}
+                  className="h-8 text-xs text-muted-foreground hover:text-destructive cursor-pointer gap-1.5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Удалить</span>
+                </Button>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              JPG, PNG или WebP. Автоматически оптимизируется до 256×256.
             </p>
           </div>
         </div>
@@ -201,13 +318,16 @@ export function ProfileForm() {
         </div>
 
         <div className="flex items-center gap-3 pt-2">
-          <Button type="submit" disabled={saving} className="cursor-pointer">
+          <Button type="submit" disabled={saving || isProcessingAvatar} className="cursor-pointer gap-2">
             {saved ? (
-              <span className="flex items-center gap-1.5">
-                <Check className="h-4 w-4 text-emerald-400" /> Сохранено
+              <span className="flex items-center gap-1.5 text-emerald-300">
+                <Check className="h-4 w-4 text-emerald-400" /> Изменения сохранены
               </span>
             ) : saving ? (
-              "Сохранение..."
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Сохранение...</span>
+              </>
             ) : (
               "Сохранить изменения"
             )}
@@ -269,4 +389,9 @@ export function ProfileForm() {
       </Dialog>
     </>
   );
+}
+
+export function ProfileForm() {
+  const { user } = useAuthStore();
+  return <ProfileFormInner key={user?.id || "guest"} />;
 }

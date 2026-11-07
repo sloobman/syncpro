@@ -25,7 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
@@ -196,6 +196,9 @@ export function Topbar() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0 cursor-pointer">
               <Avatar className="h-9 w-9">
+                {user?.avatarUrl ? (
+                  <AvatarImage src={user.avatarUrl} alt={displayName} className="object-cover" />
+                ) : null}
                 <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
                   {initials}
                 </AvatarFallback>
@@ -204,9 +207,19 @@ export function Topbar() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56 text-xs">
             <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">{displayName}</p>
-                <p className="text-xs leading-none text-muted-foreground">{displayEmail}</p>
+              <div className="flex items-center gap-2.5 py-1">
+                <Avatar className="h-9 w-9 shrink-0">
+                  {user?.avatarUrl ? (
+                    <AvatarImage src={user.avatarUrl} alt={displayName} className="object-cover" />
+                  ) : null}
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col space-y-1 min-w-0">
+                  <p className="text-sm font-medium leading-none truncate">{displayName}</p>
+                  <p className="text-xs leading-none text-muted-foreground truncate">{displayEmail}</p>
+                </div>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
