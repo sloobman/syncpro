@@ -41,7 +41,7 @@ export function Footer() {
         <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {/* Brand column */}
           <div className="sm:col-span-2 lg:col-span-1">
-            <Link href="/" className="inline-flex items-center gap-2 group" aria-label="SyncPro">
+            <Link href="/" className="inline-flex items-center gap-2 group min-h-[40px]" aria-label="SyncPro">
               <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-all">
                 <FileCode2 className="h-5 w-5" />
               </div>
@@ -58,7 +58,7 @@ export function Footer() {
               <h3 className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wider">
                 {column.title}
               </h3>
-              <ul className="mt-3.5 space-y-2.5" role="list">
+              <ul className="mt-2 space-y-1" role="list">
                 {column.links.map((link) => (
                   <li key={link.label}>
                     {link.external ? (
@@ -66,14 +66,14 @@ export function Footer() {
                         href={link.href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs sm:text-sm text-muted-foreground transition-colors hover:text-foreground"
+                        className="inline-flex items-center min-h-[38px] py-1 text-xs sm:text-sm text-muted-foreground transition-colors hover:text-foreground"
                       >
                         {link.label}
                       </a>
                     ) : (
                       <Link
                         href={link.href}
-                        className="text-xs sm:text-sm text-muted-foreground transition-colors hover:text-foreground"
+                        className="inline-flex items-center min-h-[38px] py-1 text-xs sm:text-sm text-muted-foreground transition-colors hover:text-foreground"
                       >
                         {link.label}
                       </Link>
@@ -96,15 +96,15 @@ export function Footer() {
             © 2026 SyncPro Core Team. Все права защищены.
           </p>
           <div className="flex items-center gap-4 text-xs text-muted-foreground">
-            <Link href="/privacy" className="hover:text-foreground transition-colors">
+            <Link href="/privacy" className="inline-flex items-center min-h-[38px] py-1 hover:text-foreground transition-colors">
               Конфиденциальность
             </Link>
             <span>•</span>
-            <Link href="/terms" className="hover:text-foreground transition-colors">
+            <Link href="/terms" className="inline-flex items-center min-h-[38px] py-1 hover:text-foreground transition-colors">
               Условия
             </Link>
             <span>•</span>
-            <Link href="/changelog" className="hover:text-foreground transition-colors">
+            <Link href="/changelog" className="inline-flex items-center min-h-[38px] py-1 hover:text-foreground transition-colors">
               Changelog
             </Link>
           </div>

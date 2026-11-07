@@ -35,7 +35,7 @@ export function Header() {
         </Link>
 
         {/* Desktop navigation */}
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Основная навигация">
+        <nav className="hidden items-center gap-1 lg:flex" aria-label="Основная навигация">
           {navLinks.map((link) => (
             <a
               key={link.href}
@@ -51,7 +51,7 @@ export function Header() {
         </nav>
 
         {/* Desktop CTA & Theme Toggle */}
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-3 lg:flex">
           <ThemeToggle />
           <Button variant="ghost" size="sm" asChild>
             <Link href="/auth/login">Войти</Link>
@@ -61,8 +61,8 @@ export function Header() {
           </Button>
         </div>
 
-        {/* Mobile menu controls */}
-        <div className="flex items-center gap-2 md:hidden">
+        {/* Mobile/Tablet menu controls */}
+        <div className="flex items-center gap-2 lg:hidden">
           <ThemeToggle />
           <button
             type="button"
@@ -76,12 +76,12 @@ export function Header() {
         </div>
       </div>
 
-      {/* Mobile drawer menu */}
+      {/* Mobile/Tablet drawer menu */}
       <AnimatePresence>
         {mobileOpen && (
           <>
             <motion.div
-              className="fixed inset-0 top-16 z-40 bg-black/50 backdrop-blur-xs md:hidden"
+              className="fixed inset-0 top-16 z-40 bg-black/50 backdrop-blur-xs lg:hidden"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -93,7 +93,7 @@ export function Header() {
             <motion.div
               className={cn(
                 "fixed inset-y-0 right-0 top-16 z-50 w-72",
-                "border-l border-border bg-background/95 backdrop-blur-lg shadow-2xl md:hidden"
+                "border-l border-border bg-background/95 backdrop-blur-lg shadow-2xl lg:hidden"
               )}
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
