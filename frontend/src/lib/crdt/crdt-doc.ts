@@ -8,8 +8,8 @@ import type {
 } from './types';
 import { LamportClock } from './clock';
 import { StateVector } from './state-vector';
-import { TreeCRDT } from './tree-crdt';
-import { formatID } from './id';
+import { TreeCRDT, generateOrderKeyBetween } from './tree-crdt';
+import { formatID, equalIDs } from './id';
 import { BinaryCodec, MessageType } from './binary-codec';
 
 export type UpdateListener = (deltaBytes: Uint8Array, ops: CRDTOperation[]) => void;
@@ -36,8 +36,8 @@ export class CRDTDocument {
   }
 
   private notify(ops: CRDTOperation[]): void {
-    if (ops.length === 0 || this.updateListeners.size === 0) return;
-    const bytes = BinaryCodec.encodeOperations(ops, MessageType.Update);
+    if (this.updateListeners.size === 0) return;
+    const bytes = ops.length > 0 ? BinaryCodec.encodeOperations(ops, MessageType.Update) : new Uint8Array(0);
     for (const listener of this.updateListeners) {
       listener(bytes, ops);
     }
@@ -58,6 +58,45 @@ export class CRDTDocument {
 
     this.pendingOps.push(op);
     this.notify([op]);
+    return block;
+  }
+
+  /**
+   * Updates the blockType of an existing block.
+   */
+  setBlockType(blockId: ID, blockType: BlockType): void {
+    const block = this.tree.getBlock(blockId);
+    if (block) {
+      block.blockType = blockType;
+      this.notify([]);
+    }
+  }
+
+  /**
+   * Inserts a new block after a reference block, maintaining deterministic fractional indexing.
+   */
+  insertBlockAfter(afterBlockId: ID | null, blockType: BlockType = 'paragraph', initialText = ''): BlockNode {
+    const roots = this.tree.getRootBlocks();
+    let prevKey: string | null = null;
+    let nextKey: string | null = null;
+
+    if (afterBlockId) {
+      const idx = roots.findIndex((b) => equalIDs(b.id, afterBlockId));
+      if (idx !== -1) {
+        prevKey = roots[idx].orderKey;
+        if (idx + 1 < roots.length) {
+          nextKey = roots[idx + 1].orderKey;
+        }
+      }
+    } else if (roots.length > 0) {
+      nextKey = roots[0].orderKey;
+    }
+
+    const orderKey = generateOrderKeyBetween(prevKey, nextKey);
+    const block = this.createBlock(null, blockType, orderKey);
+    if (initialText) {
+      this.insertText(block.id, 0, initialText);
+    }
     return block;
   }
 

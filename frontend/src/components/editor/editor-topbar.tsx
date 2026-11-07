@@ -39,6 +39,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
+export interface CollaboratorInfo {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  color: string;
+}
+
 export interface EditorTopbarProps {
   title?: string;
   onTitleChange?: (title: string) => void;
@@ -54,6 +61,7 @@ export interface EditorTopbarProps {
   onToggleDiff?: () => void;
   saveStatus?: "saved" | "saving" | "unsaved";
   onSave?: () => void;
+  onlineUsers?: CollaboratorInfo[];
 }
 
 export function EditorTopbar({
@@ -71,22 +79,23 @@ export function EditorTopbar({
   onToggleDiff,
   saveStatus = "saved",
   onSave,
+  onlineUsers = [],
 }: EditorTopbarProps) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const { user } = useAuthStore();
 
-  const onlineUsers = [
-    { id: "u1", name: "Алиса", avatarUrl: null, color: "bg-blue-500" },
-    { id: "u2", name: "Боб", avatarUrl: null, color: "bg-emerald-500" },
+  const defaultUsers: CollaboratorInfo[] = [
     {
-      id: "u3",
+      id: user?.id || "u-current",
       name: user?.name ? `${user.name} (Вы)` : "Вы",
       avatarUrl: user?.avatarUrl || null,
-      color: "bg-amber-500",
+      color: "bg-primary",
     },
   ];
+
+  const displayUsers = onlineUsers.length > 0 ? onlineUsers : defaultUsers;
 
   const handleCopyShareLink = () => {
     if (typeof window !== "undefined") {
@@ -197,7 +206,7 @@ export function EditorTopbar({
             </Button>
           )}
 
-          <PresenceAvatars users={onlineUsers} />
+          <PresenceAvatars users={displayUsers} />
 
           <ThemeToggle />
 
