@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -14,6 +14,8 @@ import {
   GitMerge,
   MessageSquare,
   Sparkles,
+  UserPlus,
+  FileText,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -30,48 +32,55 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
-interface Notification {
+export interface NotificationItem {
   id: string;
   title: string;
   desc: string;
   time: string;
   unread: boolean;
-  type: "comment" | "merge" | "system";
+  type: "comment" | "merge" | "invite" | "commit" | "system";
+  link?: string | null;
+  createdAt?: string;
 }
-
-const INITIAL_NOTIFICATIONS: Notification[] = [
-  {
-    id: "n1",
-    title: "Новый комментарий в главе 1",
-    desc: "Алиса: «Нужно уточнить размер буфера Redis Streams»",
-    time: "15 мин назад",
-    unread: true,
-    type: "comment",
-  },
-  {
-    id: "n2",
-    title: "Ветка успешно слита",
-    desc: "3-Way Merge ветки 'feature/crdt-ordering' в 'main' выполнен без конфликтов",
-    time: "2 часа назад",
-    unread: true,
-    type: "merge",
-  },
-  {
-    id: "n3",
-    title: "Добро пожаловать в SyncPro",
-    desc: "Ваше рабочее пространство готово к совместной работе",
-    time: "Вчера",
-    unread: false,
-    type: "system",
-  },
-];
 
 export function Topbar() {
   const router = useRouter();
   const { toggleSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [searchVal, setSearchVal] = useState("");
+
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/notifications?limit=30", {
+          credentials: "include",
+        });
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          if (Array.isArray(data.notifications)) {
+            setNotifications(data.notifications);
+          }
+          if (typeof data.unreadCount === "number") {
+            setUnreadCount(data.unreadCount);
+          }
+        }
+      } catch {
+        // Offline fallback
+      }
+    };
+
+    void load();
+    const interval = setInterval(load, 25000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user]);
 
   const handleLogout = async () => {
     await logout();
@@ -82,15 +91,44 @@ export function Topbar() {
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchVal.trim()) {
-      router.push(`/dashboard/workspace/ws_1`);
+      router.push(`/dashboard`);
     }
   };
 
-  const markAllRead = () => {
+  const markAllRead = async () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setUnreadCount(0);
+    try {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        credentials: "include",
+      });
+    } catch {
+      // Ignore network errors
+    }
   };
 
-  const unreadCount = notifications.filter((n) => n.unread).length;
+  const handleNotificationClick = async (n: NotificationItem) => {
+    if (n.unread) {
+      setNotifications((prev) =>
+        prev.map((item) => (item.id === n.id ? { ...item, unread: false } : item))
+      );
+      setUnreadCount((c) => Math.max(0, c - 1));
+      try {
+        await fetch(`/api/notifications/${n.id}`, {
+          method: "PATCH",
+          credentials: "include",
+        });
+      } catch {
+        // Ignore
+      }
+    }
+
+    if (n.link) {
+      router.push(n.link);
+    }
+  };
+
   const displayName = user?.name || "Гость";
   const displayEmail = user?.email || "guest@syncpro.dev";
   const initials = user?.name
@@ -142,7 +180,9 @@ export function Topbar() {
             >
               <Bell className="h-4 w-4" />
               {unreadCount > 0 && (
-                <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
+                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white shadow-xs">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
               )}
             </Button>
           </DropdownMenuTrigger>
@@ -161,32 +201,54 @@ export function Topbar() {
                 </button>
               )}
             </div>
-            <div className="divide-y divide-border/60 max-h-72 overflow-y-auto">
-              {notifications.map((n) => (
-                <div
-                  key={n.id}
-                  className={`p-3 transition-colors ${
-                    n.unread ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
-                  }`}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <div className="mt-0.5 p-1 rounded-md bg-muted text-muted-foreground shrink-0">
-                      {n.type === "comment" && <MessageSquare className="h-3.5 w-3.5 text-blue-500" />}
-                      {n.type === "merge" && <GitMerge className="h-3.5 w-3.5 text-emerald-500" />}
-                      {n.type === "system" && <Sparkles className="h-3.5 w-3.5 text-amber-500" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-foreground leading-snug">{n.title}</p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">
-                        {n.desc}
-                      </p>
-                      <span className="text-[10px] text-muted-foreground/80 mt-1 block">
-                        {n.time}
-                      </span>
+            <div className="divide-y divide-border/60 max-h-80 overflow-y-auto">
+              {notifications.length > 0 ? (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    onClick={() => handleNotificationClick(n)}
+                    className={`p-3 transition-colors cursor-pointer ${
+                      n.unread ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5 p-1 rounded-md bg-muted text-muted-foreground shrink-0">
+                        {n.type === "comment" && <MessageSquare className="h-3.5 w-3.5 text-blue-500" />}
+                        {n.type === "merge" && <GitMerge className="h-3.5 w-3.5 text-emerald-500" />}
+                        {n.type === "invite" && <UserPlus className="h-3.5 w-3.5 text-purple-500" />}
+                        {n.type === "commit" && <FileText className="h-3.5 w-3.5 text-cyan-500" />}
+                        {n.type === "system" && <Sparkles className="h-3.5 w-3.5 text-amber-500" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <p className="text-xs font-medium text-foreground leading-snug truncate">
+                            {n.title}
+                          </p>
+                          {n.unread && (
+                            <span className="h-1.5 w-1.5 rounded-full bg-blue-600 shrink-0" />
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">
+                          {n.desc}
+                        </p>
+                        <span className="text-[10px] text-muted-foreground/80 mt-1 block">
+                          {n.time}
+                        </span>
+                      </div>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className="p-6 text-center text-muted-foreground space-y-1.5">
+                  <div className="mx-auto w-9 h-9 rounded-full bg-muted/60 flex items-center justify-center text-muted-foreground/60 mb-2">
+                    <Bell className="h-4 w-4" />
+                  </div>
+                  <p className="text-xs font-medium text-foreground">Нет уведомлений</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Здесь появятся приглашения, коммиты и результаты слияния веток.
+                  </p>
                 </div>
-              ))}
+              )}
             </div>
           </DropdownMenuContent>
         </DropdownMenu>

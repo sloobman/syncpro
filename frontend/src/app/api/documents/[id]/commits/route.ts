@@ -5,6 +5,7 @@ import { MerkleDAGRepository } from "@/lib/db/dag-repository";
 import { putS3Object, BUCKET_COMMITS } from "@/lib/db/s3";
 import { getUserFromRequest } from "@/lib/auth/jwt";
 import { WorkspaceRepository } from "@/lib/db/workspace-repository";
+import { NotificationRepository } from "@/lib/db/notification-repository";
 
 function getFallbackCommits(documentId: string): MerkleCommit[] {
   return [
@@ -129,6 +130,23 @@ export async function POST(
     await MerkleDAGRepository.saveCommit(newCommit);
   } catch (dbErr) {
     console.warn(`[Commits API] PostgreSQL save notice:`, (dbErr as Error).message);
+  }
+
+  // Broadcast notification to other workspace members
+  try {
+    const docData = await WorkspaceRepository.getDocumentById(id, user.id);
+    if (docData?.document.workspaceId) {
+      await NotificationRepository.notifyWorkspaceMembers({
+        workspaceId: docData.document.workspaceId,
+        excludeUserId: user.id,
+        title: `Новые правки в «${docData.document.title || "документе"}»`,
+        description: `${user.name}: «${commitPayload.message}»`,
+        type: "commit",
+        link: `/doc/${id}`,
+      });
+    }
+  } catch (notifErr) {
+    console.warn("[Commits API notification notice]:", notifErr);
   }
 
   return NextResponse.json(

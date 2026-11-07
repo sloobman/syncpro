@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { query } from "./postgres";
+import { NotificationRepository } from "./notification-repository";
 import type { Workspace, Document, MemberRole } from "@/types";
 
 export interface DbWorkspaceRow {
@@ -489,6 +490,24 @@ export class WorkspaceRepository {
          DO UPDATE SET role = EXCLUDED.role`,
         [validWsId, targetUser.id, validRole]
       );
+
+      try {
+        const wsInfo = await query<{ name: string }>(`SELECT name FROM workspaces WHERE id = $1`, [validWsId]);
+        const inviterInfo = await query<{ name: string }>(`SELECT name FROM users WHERE id = $1`, [validInviterId]);
+        const wsName = wsInfo.rows[0]?.name || "рабочее пространство";
+        const inviterName = inviterInfo.rows[0]?.name || "Владелец";
+
+        await NotificationRepository.createNotification({
+          userId: targetUser.id,
+          title: "Доступ к пространству",
+          description: `${inviterName} предоставил(а) вам доступ к пространству «${wsName}» с правами «${roleName}»`,
+          type: "invite",
+          link: `/dashboard/workspace/${validWsId}`,
+        });
+      } catch (notifErr) {
+        console.warn("[inviteMember notification notice]:", notifErr);
+      }
+
       return {
         success: true,
         isPending: false,
@@ -565,8 +584,27 @@ export class WorkspaceRepository {
     `;
 
     try {
+      const pendingWs = await query<{ id: string; name: string }>(
+        `SELECT w.id, w.name 
+         FROM workspace_invitations wi
+         JOIN workspaces w ON w.id = wi.workspace_id
+         WHERE LOWER(wi.email) = $1`,
+        [cleanEmail]
+      );
+
       const res = await query(sql, [validUserId, cleanEmail]);
       await query(`DELETE FROM workspace_invitations WHERE LOWER(email) = $1`, [cleanEmail]);
+
+      for (const ws of pendingWs.rows) {
+        await NotificationRepository.createNotification({
+          userId: validUserId,
+          title: "Приглашение принято",
+          description: `Вы успешно присоединились к пространству «${ws.name}»`,
+          type: "invite",
+          link: `/dashboard/workspace/${ws.id}`,
+        });
+      }
+
       return res.rowCount ?? 0;
     } catch {
       return 0;
