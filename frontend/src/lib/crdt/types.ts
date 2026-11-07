@@ -9,8 +9,14 @@ export type BlockType =
   | 'heading2'
   | 'heading3'
   | 'list-item'
+  | 'bullet-list'
+  | 'numbered-list'
+  | 'todo'
+  | 'quote'
   | 'code-block'
-  | 'quote';
+  | 'table'
+  | 'image'
+  | 'divider';
 
 export interface TextNode {
   readonly id: ID;

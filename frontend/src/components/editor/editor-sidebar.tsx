@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ChevronRight,
   ChevronLeft,
@@ -26,12 +26,7 @@ export interface HeadingItem {
   level: number;
 }
 
-const INITIAL_HEADINGS: HeadingItem[] = [
-  { id: "h1", text: "Глава 1: Введение в системы совместного редактирования", level: 1 },
-  { id: "h2", text: "1.1. Архитектурный стиль Merkle-CRDT", level: 2 },
-];
-
-interface CommentItem {
+export interface CommentItem {
   id: string;
   author: string;
   avatarUrl?: string | null;
@@ -39,26 +34,10 @@ interface CommentItem {
   text: string;
 }
 
-const INITIAL_COMMENTS: CommentItem[] = [
-  {
-    id: "c1",
-    author: "Алиса",
-    avatarUrl: null,
-    time: "10 мин назад",
-    text: "Нужно уточнить размер буфера Redis Streams для синхронизации.",
-  },
-  {
-    id: "c2",
-    author: "Боб",
-    avatarUrl: null,
-    time: "1 час назад",
-    text: "Добавил спецификацию 3-Way CRDT Merge в секцию 2.",
-  },
-];
-
 interface EditorSidebarProps {
   open: boolean;
   onToggle: () => void;
+  documentId?: string;
   commits?: MerkleCommit[];
   currentCommitId?: string;
   headings?: HeadingItem[];
@@ -68,52 +47,117 @@ interface EditorSidebarProps {
   onOpenDiffDialog?: () => void;
 }
 
+function formatRelativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  if (diff < 60000) return "Только что";
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins} мин назад`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} ч назад`;
+  const days = Math.floor(hours / 24);
+  return `${days} дн назад`;
+}
+
 export function EditorSidebar({
   open,
   onToggle,
+  documentId,
   commits = [],
   currentCommitId = "",
-  headings = INITIAL_HEADINGS,
+  headings = [],
   onSelectHeading,
   onSelectCommit = () => {},
   onOpenMergeDialog,
   onOpenDiffDialog,
 }: EditorSidebarProps) {
-  const [comments, setComments] = useState<CommentItem[]>(INITIAL_COMMENTS);
+  const [comments, setComments] = useState<CommentItem[]>([]);
   const [commentText, setCommentText] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { user } = useAuthStore();
+
+  // Load real comments from PostgreSQL API with async cancellation check
+  useEffect(() => {
+    let active = true;
+    if (!documentId) return;
+
+    fetch(`/api/documents/${documentId}/comments`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data && Array.isArray(data.comments)) {
+          setComments(
+            data.comments.map((c: {
+              id: string;
+              authorName: string;
+              authorAvatarUrl: string | null;
+              createdAt: number;
+              content: string;
+            }) => ({
+              id: c.id,
+              author: c.authorName || "Пользователь",
+              avatarUrl: c.authorAvatarUrl,
+              time: formatRelativeTime(c.createdAt),
+              text: c.content,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [documentId]);
 
   const handleSendComment = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!commentText.trim()) return;
+    if (!commentText.trim() || isSubmitting) return;
 
     const trimmedText = commentText.trim();
-    const newComment: CommentItem = {
-      id: `c_${Date.now()}`,
+    setIsSubmitting(true);
+
+    const optimisticComment: CommentItem = {
+      id: `temp_${Date.now()}`,
       author: user?.name || "Вы",
       avatarUrl: user?.avatarUrl || null,
       time: "Только что",
       text: trimmedText,
     };
 
-    setComments((prev) => [...prev, newComment]);
+    setComments((prev) => [...prev, optimisticComment]);
     setCommentText("");
 
-    // Create real notification in PostgreSQL
-    try {
-      await fetch("/api/notifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          title: "Новый комментарий в документе",
-          description: `${user?.name || "Пользователь"}: «${trimmedText}»`,
-          type: "comment",
-        }),
-      });
-    } catch {
-      // Offline fallback
+    if (documentId) {
+      try {
+        const res = await fetch(`/api/documents/${documentId}/comments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ content: trimmedText }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.comment) {
+            setComments((prev) =>
+              prev.map((c) =>
+                c.id === optimisticComment.id
+                  ? {
+                      id: data.comment.id,
+                      author: data.comment.authorName,
+                      avatarUrl: data.comment.authorAvatarUrl,
+                      time: "Только что",
+                      text: data.comment.content,
+                    }
+                  : c
+              )
+            );
+          }
+        }
+      } catch {
+        // Optimistic item remains
+      }
     }
+
+    setIsSubmitting(false);
   };
 
   if (!open) {
@@ -177,14 +221,19 @@ export function EditorSidebar({
                     key={h.id}
                     onClick={() => onSelectHeading && onSelectHeading(h.id)}
                     className={`w-full text-left text-xs py-1.5 px-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground truncate cursor-pointer ${
-                      h.level === 2 ? "pl-5 text-[11px]" : "font-medium"
+                      h.level === 2 ? "pl-5 text-[11px]" : h.level === 3 ? "pl-8 text-[11px]" : "font-medium"
                     }`}
                   >
                     {h.text}
                   </button>
                 ))
               ) : (
-                <p className="text-xs text-muted-foreground p-2">Заголовки не найдены</p>
+                <div className="p-4 text-center text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium">Заголовки не найдены</p>
+                  <p className="text-[11px] text-muted-foreground/70">
+                    Добавьте Заголовок 1 или 2, чтобы сформировать автоматическое оглавление
+                  </p>
+                </div>
               )}
             </div>
           </ScrollArea>
@@ -194,31 +243,40 @@ export function EditorSidebar({
         <TabsContent value="comments" className="flex-1 flex flex-col p-0 m-0 min-h-0">
           <ScrollArea className="flex-1 p-3">
             <div className="space-y-3">
-              {comments.map((c) => (
-                <div key={c.id} className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Avatar className="h-5 w-5 shrink-0">
-                        {c.avatarUrl ? (
-                          <AvatarImage src={c.avatarUrl} alt={c.author} className="object-cover" />
-                        ) : null}
-                        <AvatarFallback className="text-[10px] bg-primary/10 text-primary font-medium">
-                          {c.author.slice(0, 1).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-xs font-semibold text-foreground truncate">
-                        {c.author}
+              {comments.length > 0 ? (
+                comments.map((c) => (
+                  <div key={c.id} className="p-2.5 rounded-xl border border-border bg-muted/20 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Avatar className="h-5 w-5 shrink-0">
+                          {c.avatarUrl ? (
+                            <AvatarImage src={c.avatarUrl} alt={c.author} className="object-cover" />
+                          ) : null}
+                          <AvatarFallback className="text-[10px] bg-primary/10 text-primary font-medium">
+                            {c.author.slice(0, 1).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-xs font-semibold text-foreground truncate">
+                          {c.author}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        {c.time}
                       </span>
                     </div>
-                    <span className="text-[10px] text-muted-foreground shrink-0">
-                      {c.time}
-                    </span>
+                    <p className="text-xs text-muted-foreground leading-relaxed pl-7">
+                      {c.text}
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed pl-7">
-                    {c.text}
+                ))
+              ) : (
+                <div className="p-4 text-center text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium">Комментариев пока нет</p>
+                  <p className="text-[11px] text-muted-foreground/70">
+                    Напишите первый комментарий к документу ниже
                   </p>
                 </div>
-              ))}
+              )}
             </div>
           </ScrollArea>
 
@@ -227,9 +285,15 @@ export function EditorSidebar({
               placeholder="Написать комментарий..."
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
+              disabled={isSubmitting}
               className="h-8 text-xs"
             />
-            <Button type="submit" size="icon" disabled={!commentText.trim()} className="h-8 w-8 shrink-0 cursor-pointer">
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!commentText.trim() || isSubmitting}
+              className="h-8 w-8 shrink-0 cursor-pointer"
+            >
               <Send className="h-3.5 w-3.5" />
             </Button>
           </form>

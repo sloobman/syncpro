@@ -1,116 +1,120 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { EditorTopbar } from "@/components/editor/editor-topbar";
+import { EditorTopbar, type CollaboratorInfo } from "@/components/editor/editor-topbar";
 import { EditorToolbar } from "@/components/editor/editor-toolbar";
 import { EditorSidebar, type HeadingItem } from "@/components/editor/editor-sidebar";
 import { EditorStatusbar } from "@/components/editor/editor-statusbar";
 import { TimeTravelSlider } from "@/components/editor/time-travel-slider";
 import { MergeBranchDialog } from "@/components/editor/merge-branch-dialog";
 import { DiffViewer } from "@/components/editor/diff-viewer";
+import { BlockEditorItem } from "@/components/editor/block-editor-item";
 import { CRDTDocument } from "@/lib/crdt/crdt-doc";
 import { formatID } from "@/lib/crdt/id";
 import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, X, Heading1, Heading2, Table as TableIcon, Quote, CheckSquare, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-
-const INITIAL_COMMITS: MerkleCommit[] = [
-  {
-    id: "a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0",
-    documentId: "doc-default",
-    parents: [],
-    deltaSha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    crdtDeltaStoragePath: "deltas/doc-default/a1b2.bin",
-    snapshotStoragePath: "snapshots/doc-default/a1b2.snap.bin",
-    stateVector: { 1: 5 },
-    message: "feat: начальная структура документа",
-    author: { userId: "u1", name: "Алиса", avatarUrl: null },
-    timestamp: Date.now() - 3600000 * 2,
-    branch: "main",
-  },
-  {
-    id: "b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef01",
-    documentId: "doc-default",
-    parents: ["a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0"],
-    deltaSha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b856",
-    crdtDeltaStoragePath: "deltas/doc-default/b2c3.bin",
-    snapshotStoragePath: null,
-    stateVector: { 1: 12, 2: 4 },
-    message: "feat(crdt): интеграция YATA/Fugue text crdt",
-    author: { userId: "u2", name: "Боб", avatarUrl: null },
-    timestamp: Date.now() - 3600000,
-    branch: "feature/crdt-ordering",
-  },
-  {
-    id: "c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef02",
-    documentId: "doc-default",
-    parents: ["a1b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef0"],
-    deltaSha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b857",
-    crdtDeltaStoragePath: "deltas/doc-default/c3d4.bin",
-    snapshotStoragePath: null,
-    stateVector: { 1: 8, 3: 6 },
-    message: "feat(tree): Kleppmann replicated block tree",
-    author: { userId: "u3", name: "Вы", avatarUrl: null },
-    timestamp: Date.now() - 1800000,
-    branch: "dev",
-  },
-  {
-    id: "d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef03",
-    documentId: "doc-default",
-    parents: [
-      "b2c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef01",
-      "c3d4e5f67890123456789abcdef0123456789abcdef0123456789abcdef02",
-    ],
-    deltaSha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b858",
-    crdtDeltaStoragePath: "deltas/doc-default/d4e5.bin",
-    snapshotStoragePath: "snapshots/doc-default/d4e5.snap.bin",
-    stateVector: { 1: 15, 2: 6, 3: 8 },
-    message: "merge: бесконфликтное слияние 3-Way CRDT Merge",
-    author: { userId: "u1", name: "Алиса", avatarUrl: null },
-    timestamp: Date.now() - 300000,
-    branch: "main",
-  },
-];
+import { useAuthStore } from "@/lib/stores/auth-store";
 
 interface EditorShellProps {
   documentId?: string;
 }
 
 function initCRDTFromMarkdown(doc: CRDTDocument, markdownText: string) {
-  const paragraphs = markdownText
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  if (paragraphs.length === 0) {
+  if (!markdownText || !markdownText.trim()) {
     const b = doc.createBlock(null, "paragraph", "a");
     doc.insertText(b.id, 0, "");
     return;
   }
 
-  paragraphs.forEach((p, index) => {
+  const lines = markdownText.split("\n");
+  const chunks: Array<{ type: BlockType; content: string }> = [];
+
+  let inCodeBlock = false;
+  let codeBuffer: string[] = [];
+  let inTable = false;
+  let tableBuffer: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Code block detection
+    if (line.trim().startsWith("```")) {
+      if (inCodeBlock) {
+        chunks.push({ type: "code-block", content: codeBuffer.join("\n") });
+        codeBuffer = [];
+        inCodeBlock = false;
+      } else {
+        inCodeBlock = true;
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeBuffer.push(line);
+      continue;
+    }
+
+    // Table detection (line starts and ends with |)
+    if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
+      inTable = true;
+      tableBuffer.push(line);
+      continue;
+    } else if (inTable) {
+      chunks.push({ type: "table", content: tableBuffer.join("\n") });
+      tableBuffer = [];
+      inTable = false;
+    }
+
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Check headings & rich blocks
+    if (trimmed.startsWith("# ")) {
+      chunks.push({ type: "heading1", content: trimmed.slice(2).trim() });
+    } else if (trimmed.startsWith("## ")) {
+      chunks.push({ type: "heading2", content: trimmed.slice(3).trim() });
+    } else if (trimmed.startsWith("### ")) {
+      chunks.push({ type: "heading3", content: trimmed.slice(4).trim() });
+    } else if (trimmed.startsWith("> ")) {
+      chunks.push({ type: "quote", content: trimmed.slice(2).trim() });
+    } else if (trimmed.startsWith("[ ] ") || trimmed.startsWith("[x] ") || trimmed.startsWith("[X] ")) {
+      chunks.push({ type: "todo", content: trimmed });
+    } else if (trimmed.startsWith("![") && trimmed.includes("](") && trimmed.endsWith(")")) {
+      chunks.push({ type: "image", content: trimmed });
+    } else if (trimmed === "---" || trimmed === "***" || trimmed === "___") {
+      chunks.push({ type: "divider", content: "" });
+    } else if (trimmed.startsWith("• ") || trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+      chunks.push({ type: "bullet-list", content: trimmed.slice(2).trim() });
+    } else if (/^\d+\.\s/.test(trimmed)) {
+      chunks.push({ type: "numbered-list", content: trimmed.replace(/^\d+\.\s*/, "").trim() });
+    } else {
+      chunks.push({ type: "paragraph", content: trimmed });
+    }
+  }
+
+  if (inTable && tableBuffer.length > 0) {
+    chunks.push({ type: "table", content: tableBuffer.join("\n") });
+  }
+  if (inCodeBlock && codeBuffer.length > 0) {
+    chunks.push({ type: "code-block", content: codeBuffer.join("\n") });
+  }
+
+  if (chunks.length === 0) {
+    const b = doc.createBlock(null, "paragraph", "a");
+    doc.insertText(b.id, 0, "");
+    return;
+  }
+
+  chunks.forEach((chunk, index) => {
     const orderKey = String.fromCharCode(97 + (index % 26)).repeat(
       Math.floor(index / 26) + 1
     );
-    let type: BlockType = "paragraph";
-    let content = p;
-
-    if (p.startsWith("# ")) {
-      type = "heading1";
-      content = p.slice(2).trim();
-    } else if (p.startsWith("## ")) {
-      type = "heading2";
-      content = p.slice(3).trim();
-    } else if (p.startsWith("### ")) {
-      type = "heading3";
-      content = p.slice(4).trim();
-    }
-
-    const b = doc.createBlock(null, type, orderKey);
-    doc.insertText(b.id, 0, content);
+    const b = doc.createBlock(null, chunk.type, orderKey);
+    doc.insertText(b.id, 0, chunk.content);
   });
 }
 
@@ -122,6 +126,11 @@ function serializeCRDTToMarkdown(doc: CRDTDocument): string {
       if (b.blockType === "heading1") return `# ${text}`;
       if (b.blockType === "heading2") return `## ${text}`;
       if (b.blockType === "heading3") return `### ${text}`;
+      if (b.blockType === "quote") return text.startsWith(">") ? text : `> ${text}`;
+      if (b.blockType === "divider") return "---";
+      if (b.blockType === "code-block") return `\`\`\`\n${text}\n\`\`\``;
+      if (b.blockType === "bullet-list" || b.blockType === "list-item") return `• ${text}`;
+      if (b.blockType === "numbered-list") return `1. ${text}`;
       return text;
     })
     .join("\n\n");
@@ -129,20 +138,27 @@ function serializeCRDTToMarkdown(doc: CRDTDocument): string {
 
 export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const { canvasWidth } = useUIStore();
+  const { user } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [commits, setCommits] = useState<MerkleCommit[]>(INITIAL_COMMITS);
-  const [currentCommitId, setCurrentCommitId] = useState<string>(
-    INITIAL_COMMITS[INITIAL_COMMITS.length - 1].id
-  );
+  const [commits, setCommits] = useState<MerkleCommit[]>([]);
+  const [currentCommitId, setCurrentCommitId] = useState<string>("");
   const [timeTravelIndex, setTimeTravelIndex] = useState<number | null>(null);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
   const [isDiffOpen, setIsDiffOpen] = useState(false);
   const [branch, setBranch] = useState("main");
-  const [branches, setBranches] = useState<string[]>([
-    "main",
-    "dev",
-    "feature/crdt-ordering",
-  ]);
+  const [branches, setBranches] = useState<string[]>(["main", "dev"]);
+  const [onlineUsers, setOnlineUsers] = useState<CollaboratorInfo[]>([]);
+
+  const clientIdRef = useRef<string>("");
+  const myColorRef = useRef<string>("bg-primary");
+
+  useEffect(() => {
+    if (!clientIdRef.current) {
+      clientIdRef.current = `client_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+      const colors = ["bg-blue-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-rose-500"];
+      myColorRef.current = colors[Math.floor(Math.random() * colors.length)];
+    }
+  }, []);
 
   const [title, setTitle] = useState(() => {
     if (typeof window === "undefined") return "Новый документ";
@@ -166,12 +182,25 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const docRef = useRef<CRDTDocument | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize document from persistent store
+  // Synchronize blocks state from CRDT tree
+  const refreshBlocks = useCallback(() => {
+    const doc = docRef.current;
+    if (!doc) return;
+    const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
+    setBlocksState(activeBlocks);
+
+    const texts: Record<string, string> = {};
+    for (const b of activeBlocks) {
+      texts[formatID(b.id)] = doc.getBlockText(b.id);
+    }
+    setBlockTexts(texts);
+  }, []);
+
+  // Initialize document from persistent store and backend
   useEffect(() => {
     const store = useWorkspaceStore.getState();
     const docMeta = store.getDocumentById(documentId);
     const savedContent = store.getDocumentContent(documentId);
-
     const docTitle = docMeta?.title || (documentId === "doc_1" ? "Глава 1: Введение в системы совместного редактирования" : "Новый документ");
 
     const doc = new CRDTDocument(1);
@@ -180,24 +209,13 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     const initialContent = savedContent || (documentId === "doc_1" ? store.getDocumentContent("doc_1") : `# ${docTitle}\n\nНачните редактирование документа...`);
     initCRDTFromMarkdown(doc, initialContent);
 
-    const refreshBlocks = () => {
-      const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
-      setBlocksState(activeBlocks);
-
-      const texts: Record<string, string> = {};
-      for (const b of activeBlocks) {
-        texts[formatID(b.id)] = doc.getBlockText(b.id);
-      }
-      setBlockTexts(texts);
-    };
-
     doc.onUpdate(() => {
       refreshBlocks();
     });
 
     refreshBlocks();
 
-    // Try fetching from server in background if available
+    // Fetch document metadata and content from server
     fetch(`/api/documents/${documentId}`, { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -218,22 +236,84 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           freshDoc.onUpdate(refreshBlocks);
           refreshBlocks();
         }
-        if (false) {
-          setTitle(data.document.title);
-          if (
-            data?.content &&
-            (!savedContent || savedContent === `# ${docTitle}\n\nНачните редактирование документа...`)
-          ) {
-            const freshDoc = new CRDTDocument(1);
-            docRef.current = freshDoc;
-            initCRDTFromMarkdown(freshDoc, data.content);
-            freshDoc.onUpdate(refreshBlocks);
-            refreshBlocks();
-          }
+      })
+      .catch(() => {});
+
+    // Fetch document commits and Merkle DAG
+    fetch(`/api/documents/${documentId}/commits`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.commits) && data.commits.length > 0) {
+          setCommits(data.commits);
+          setCurrentCommitId(data.commits[data.commits.length - 1].id);
+          const uniqueBranches = Array.from(new Set(data.commits.map((c: MerkleCommit) => c.branch || "main")));
+          if (!uniqueBranches.includes("main")) uniqueBranches.unshift("main");
+          setBranches(uniqueBranches as string[]);
         }
       })
       .catch(() => {});
-  }, [documentId]);
+  }, [documentId, refreshBlocks]);
+
+  // Real-time Awareness Polling (Redis presence)
+  useEffect(() => {
+    let cancelled = false;
+
+    const pollAwareness = async () => {
+      try {
+        const cId = clientIdRef.current || `client_${Date.now().toString(36)}`;
+        // Send heartbeat
+        await fetch(`/api/documents/${documentId}/awareness`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            clientId: cId,
+            state: {
+              user: {
+                id: user?.id || cId,
+                name: user?.name ? `${user.name} (Вы)` : "Вы",
+                avatarUrl: user?.avatarUrl || null,
+                color: myColorRef.current,
+              },
+              cursor: { blockId: activeBlockId || "root" },
+            },
+          }),
+        });
+
+        // Retrieve active online users
+        const res = await fetch(`/api/documents/${documentId}/awareness`, {
+          credentials: "include",
+        });
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          if (Array.isArray(data.users)) {
+            const formatted: CollaboratorInfo[] = data.users.map((u: {
+              id?: string;
+              clientId?: string;
+              name?: string;
+              avatarUrl?: string | null;
+              color?: string;
+            }) => ({
+              id: u.id || u.clientId || "u",
+              name: u.name || "Участник",
+              avatarUrl: u.avatarUrl || null,
+              color: u.color || "bg-primary",
+            }));
+            setOnlineUsers(formatted);
+          }
+        }
+      } catch {
+        // Network or offline fallback
+      }
+    };
+
+    pollAwareness();
+    const interval = setInterval(pollAwareness, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [documentId, user?.id, user?.name, user?.avatarUrl, activeBlockId]);
 
   // Debounced auto-save function
   const triggerAutoSave = useCallback(
@@ -269,21 +349,28 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     const markdown = serializeCRDTToMarkdown(doc);
     useWorkspaceStore.getState().saveDocumentContent(documentId, markdown, title);
 
-    // Create Merkle commit on server
+    // Create real Merkle commit on server
     try {
-      await fetch(`/api/documents/${documentId}/commits`, {
+      const res = await fetch(`/api/documents/${documentId}/commits`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           branch,
-          parents: [currentCommitId],
+          parents: currentCommitId ? [currentCommitId] : [],
           stateVector: { crdt_clock: 1 },
-          patch: { ops: [] },
           message: `Сохранение документа: ${title}`,
         }),
       });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.commit) {
+          setCommits((prev) => [...prev, data.commit]);
+          setCurrentCommitId(data.commit.id);
+        }
+      }
     } catch {
-      // offline / guest
+      // Offline fallback
     }
 
     setSaveStatus("saved");
@@ -312,7 +399,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     [canEdit, documentId, triggerAutoSave]
   );
 
-  // Handle text input modification inside a block
+  // Robust prefix-suffix CRDT text diffing
   const handleTextChange = useCallback(
     (blockId: ID, newText: string) => {
       const doc = docRef.current;
@@ -321,18 +408,33 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       const current = doc.getBlockText(blockId);
       if (newText === current) return;
 
-      if (newText.startsWith(current)) {
-        const added = newText.slice(current.length);
-        doc.insertText(blockId, current.length, added);
-      } else {
-        const currentLen = current.length;
-        if (currentLen > 0) {
-          doc.deleteText(blockId, 0, currentLen);
-        }
-        if (newText.length > 0) {
-          doc.insertText(blockId, 0, newText);
-        }
+      // Find common prefix
+      let start = 0;
+      while (start < current.length && start < newText.length && current[start] === newText[start]) {
+        start++;
       }
+
+      // Find common suffix
+      let currentEnd = current.length;
+      let newEnd = newText.length;
+      while (currentEnd > start && newEnd > start && current[currentEnd - 1] === newText[newEnd - 1]) {
+        currentEnd--;
+        newEnd--;
+      }
+
+      const deleteCount = currentEnd - start;
+      const insertedText = newText.slice(start, newEnd);
+
+      if (deleteCount > 0) {
+        doc.deleteText(blockId, start, deleteCount);
+      }
+      if (insertedText.length > 0) {
+        doc.insertText(blockId, start, insertedText);
+      }
+
+      // Optimistically update local block texts
+      const bKey = formatID(blockId);
+      setBlockTexts((prev) => ({ ...prev, [bKey]: newText }));
 
       triggerAutoSave();
     },
@@ -341,23 +443,53 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
 
   // Add a new block to the CRDT tree
   const handleAddBlock = useCallback(
-    (type: BlockType = "paragraph", initialText?: string) => {
+    (type: BlockType = "paragraph", initialText?: string, afterBlockId?: ID | null) => {
       const doc = docRef.current;
       if (!doc || !canEdit) return;
 
-      const rootBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
-      const lastKey = rootBlocks.length > 0 ? rootBlocks[rootBlocks.length - 1].orderKey : null;
-      const nextKey = lastKey ? `${lastKey}z` : "m";
-
-      const block = doc.createBlock(null, type, nextKey);
       const defaultText =
-        initialText ?? (type.startsWith("heading") ? "Новый заголовок" : "Новый абзац документа...");
-      doc.insertText(block.id, 0, defaultText);
-      setActiveBlockId(formatID(block.id));
+        initialText ??
+        (type === "heading1"
+          ? "Новый заголовок 1"
+          : type === "heading2"
+          ? "Новый подраздел"
+          : type === "heading3"
+          ? "Новый пункт"
+          : type === "quote"
+          ? "Важная цитата..."
+          : type === "todo"
+          ? "[ ] Новая задача"
+          : type === "bullet-list"
+          ? "Элемент списка"
+          : type === "numbered-list"
+          ? "Элемент списка"
+          : type === "code-block"
+          ? "// Код или конфигурация\nconst mode = 'sync';"
+          : type === "table"
+          ? "| Параметр | Значение |\n|---|---|\n| Статус | В работе |\n| Версия | 1.0 |"
+          : type === "image"
+          ? "![Схема](https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1000&q=80)"
+          : "");
 
+      const block = doc.insertBlockAfter(afterBlockId ?? null, type, defaultText);
+      setActiveBlockId(formatID(block.id));
+      refreshBlocks();
       triggerAutoSave();
     },
-    [canEdit, triggerAutoSave]
+    [canEdit, refreshBlocks, triggerAutoSave]
+  );
+
+  // Change existing block type
+  const handleChangeBlockType = useCallback(
+    (blockId: ID, newType: BlockType) => {
+      const doc = docRef.current;
+      if (!doc || !canEdit) return;
+
+      doc.setBlockType(blockId, newType);
+      refreshBlocks();
+      triggerAutoSave();
+    },
+    [canEdit, refreshBlocks, triggerAutoSave]
   );
 
   // Delete a block from the CRDT tree
@@ -366,9 +498,10 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       const doc = docRef.current;
       if (!doc || !canEdit) return;
       doc.deleteBlock(blockId);
+      refreshBlocks();
       triggerAutoSave();
     },
-    [canEdit, triggerAutoSave]
+    [canEdit, refreshBlocks, triggerAutoSave]
   );
 
   // Toolbar action execution
@@ -378,87 +511,116 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       if (!doc || !canEdit) return;
 
       const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
-      if (activeBlocks.length === 0) {
-        handleAddBlock("paragraph");
-        return;
-      }
-
       const targetBlock = activeBlockId
         ? activeBlocks.find((b) => formatID(b.id) === activeBlockId) || activeBlocks[0]
         : activeBlocks[activeBlocks.length - 1];
-
-      const currentText = doc.getBlockText(targetBlock.id);
 
       switch (action) {
         case "undo":
           break;
         case "redo":
           break;
-        case "bold":
-          doc.insertText(targetBlock.id, currentText.length, " **жирный текст**");
-          triggerAutoSave();
-          break;
-        case "italic":
-          doc.insertText(targetBlock.id, currentText.length, " *курсив*");
-          triggerAutoSave();
-          break;
-        case "underline":
-          doc.insertText(targetBlock.id, currentText.length, " <u>подчёркнутый текст</u>");
-          triggerAutoSave();
-          break;
-        case "strike":
-          doc.insertText(targetBlock.id, currentText.length, " ~~зачёркнутый текст~~");
-          triggerAutoSave();
-          break;
         case "h1":
-          handleAddBlock("heading1", "Новый раздел");
+          if (targetBlock) {
+            handleChangeBlockType(targetBlock.id, "heading1");
+          } else {
+            handleAddBlock("heading1");
+          }
           break;
         case "h2":
-          handleAddBlock("heading2", "Подраздел");
+          if (targetBlock) {
+            handleChangeBlockType(targetBlock.id, "heading2");
+          } else {
+            handleAddBlock("heading2");
+          }
           break;
         case "h3":
-          handleAddBlock("heading3", "Пункт раздела");
+          if (targetBlock) {
+            handleChangeBlockType(targetBlock.id, "heading3");
+          } else {
+            handleAddBlock("heading3");
+          }
+          break;
+        case "bold":
+          if (targetBlock) {
+            const current = doc.getBlockText(targetBlock.id);
+            handleTextChange(targetBlock.id, current ? `${current} **жирный текст**` : "**жирный текст**");
+          }
+          break;
+        case "italic":
+          if (targetBlock) {
+            const current = doc.getBlockText(targetBlock.id);
+            handleTextChange(targetBlock.id, current ? `${current} *курсив*` : "*курсив*");
+          }
+          break;
+        case "underline":
+          if (targetBlock) {
+            const current = doc.getBlockText(targetBlock.id);
+            handleTextChange(targetBlock.id, current ? `${current} <u>подчёркнутый текст</u>` : "<u>подчёркнутый текст</u>");
+          }
+          break;
+        case "strike":
+          if (targetBlock) {
+            const current = doc.getBlockText(targetBlock.id);
+            handleTextChange(targetBlock.id, current ? `${current} ~~зачёркнутый текст~~` : "~~зачёркнутый текст~~");
+          }
           break;
         case "bullet-list":
-          handleAddBlock("paragraph", "• Элемент маркированного списка");
+          if (targetBlock) {
+            handleChangeBlockType(targetBlock.id, "bullet-list");
+          } else {
+            handleAddBlock("bullet-list");
+          }
           break;
         case "numbered-list":
-          handleAddBlock("paragraph", "1. Элемент нумерованного списка");
+          if (targetBlock) {
+            handleChangeBlockType(targetBlock.id, "numbered-list");
+          } else {
+            handleAddBlock("numbered-list");
+          }
           break;
         case "todo-list":
-          handleAddBlock("paragraph", "[ ] Новая задача для выполнения");
+          if (targetBlock) {
+            handleChangeBlockType(targetBlock.id, "todo");
+          } else {
+            handleAddBlock("todo");
+          }
           break;
         case "quote":
-          handleAddBlock("paragraph", "> Важная цитата или примечание команды");
+          if (targetBlock) {
+            handleChangeBlockType(targetBlock.id, "quote");
+          } else {
+            handleAddBlock("quote");
+          }
           break;
         case "code":
-          handleAddBlock(
-            "paragraph",
-            "```ts\n// Код или конфигурация\nconst config = { mode: 'sync' };\n```"
-          );
-          break;
-        case "link":
-          doc.insertText(targetBlock.id, currentText.length, " [Ссылка на ресурс](https://syncpro.dev)");
-          triggerAutoSave();
-          break;
-        case "image":
-          doc.insertText(targetBlock.id, currentText.length, " ![Схема](https://syncpro.dev/diagram.png)");
-          triggerAutoSave();
+          if (targetBlock) {
+            handleChangeBlockType(targetBlock.id, "code-block");
+          } else {
+            handleAddBlock("code-block");
+          }
           break;
         case "table":
-          handleAddBlock(
-            "paragraph",
-            "| Параметр | Значение |\n|---|---|\n| Статус | Завершено |\n| Версия | 1.2.0 |"
-          );
+          handleAddBlock("table", undefined, targetBlock?.id);
+          break;
+        case "image":
+          handleAddBlock("image", undefined, targetBlock?.id);
+          break;
+        case "link":
+          if (targetBlock) {
+            const current = doc.getBlockText(targetBlock.id);
+            handleTextChange(targetBlock.id, current ? `${current} [Ссылка](https://syncpro.dev)` : "[Ссылка](https://syncpro.dev)");
+          }
           break;
       }
     },
-    [activeBlockId, canEdit, handleAddBlock, triggerAutoSave]
+    [activeBlockId, canEdit, handleAddBlock, handleChangeBlockType, handleTextChange]
   );
 
   // Export handlers
   const handleExportMarkdown = useCallback(() => {
-    const content = Object.values(blockTexts).join("\n\n");
+    const doc = docRef.current;
+    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
     const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -505,7 +667,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     const el = document.getElementById(`block-${id}`);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.focus();
+      setActiveBlockId(id);
     }
   };
 
@@ -521,25 +683,31 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     setBranch(b);
   };
 
-  // 3-Way Merge handler
+  // Real 3-Way Merge handler
   const handleConfirmMerge = async (source: string, target: string) => {
-    const mergeId = `merge_${Date.now().toString(16)}`;
-    const newCommit: MerkleCommit = {
-      id: mergeId,
-      documentId,
-      parents: [currentCommitId],
-      deltaSha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b859",
-      crdtDeltaStoragePath: `deltas/${documentId}/${mergeId}.bin`,
-      snapshotStoragePath: null,
-      stateVector: { 1: 20, 2: 15 },
-      message: `Merge '${source}' into '${target}' via 3-Way CRDT Merge`,
-      author: { userId: "user-current", name: "Вы", avatarUrl: null },
-      timestamp: Date.now(),
-      branch: target,
-    };
-    setCommits((prev) => [...prev, newCommit]);
-    setCurrentCommitId(newCommit.id);
-    setBranch(target);
+    try {
+      const res = await fetch(`/api/documents/${documentId}/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sourceBranch: source,
+          targetBranch: target,
+          targetCommitId: currentCommitId,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.mergeCommit) {
+          setCommits((prev) => [...prev, data.mergeCommit]);
+          setCurrentCommitId(data.mergeCommit.id);
+          setBranch(target);
+        }
+      }
+    } catch (err) {
+      console.warn("[3-Way Merge error]:", err);
+    }
   };
 
   const currentDiffBase = useMemo(() => {
@@ -582,6 +750,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         onToggleDiff={() => setIsDiffOpen(!isDiffOpen)}
         saveStatus={saveStatus}
         onSave={canEdit ? handleManualSave : undefined}
+        onlineUsers={onlineUsers}
       />
 
       <EditorToolbar onAction={handleToolbarAction} disabled={!canEdit} />
@@ -617,64 +786,34 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
 
           {/* Active document page */}
           <div
-            className={`w-full ${canvasWidthClass} min-h-[1050px] bg-card border border-border shadow-xs rounded-2xl p-8 sm:p-14 relative text-foreground space-y-6 transition-all duration-200`}
+            className={`w-full ${canvasWidthClass} min-h-[1050px] bg-card border border-border shadow-xs rounded-2xl p-8 sm:p-14 relative text-foreground space-y-4 transition-all duration-200`}
           >
             {blocksState.map((block) => {
               const bKey = formatID(block.id);
               const text = blockTexts[bKey] ?? "";
 
               return (
-                <div
-                  key={bKey}
-                  id={`block-${bKey}`}
-                  className="group relative flex items-start gap-2.5"
-                  onFocus={() => setActiveBlockId(bKey)}
-                >
-                  <div className="flex-1">
-                    {block.blockType.startsWith("heading") ? (
-                      <input
-                        value={text}
-                        readOnly={!canEdit}
-                        onChange={(e) => canEdit && handleTextChange(block.id, e.target.value)}
-                        className={`w-full font-bold tracking-tight bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary focus:outline-none py-1 text-foreground ${
-                          block.blockType === "heading1"
-                            ? "text-2xl sm:text-3xl"
-                            : block.blockType === "heading2"
-                            ? "text-xl sm:text-2xl"
-                            : "text-lg sm:text-xl"
-                        }`}
-                        placeholder="Заголовок..."
-                      />
-                    ) : (
-                      <textarea
-                        value={text}
-                        rows={Math.max(2, Math.ceil(text.length / 80))}
-                        readOnly={!canEdit}
-                        onChange={(e) => canEdit && handleTextChange(block.id, e.target.value)}
-                        className="w-full text-sm sm:text-base leading-relaxed bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary focus:outline-none resize-none py-1 text-foreground/90 font-normal"
-                        placeholder="Текст абзаца..."
-                      />
-                    )}
-                  </div>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => canEdit && handleDeleteBlock(block.id)}
-                    className={`h-7 w-7 transition-opacity text-muted-foreground hover:text-destructive shrink-0 mt-1 cursor-pointer ${
-                      canEdit ? "opacity-0 group-hover:opacity-100" : "hidden pointer-events-none"
-                    }`}
-                    title="Удалить блок"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                <div key={bKey} id={`block-${bKey}`}>
+                  <BlockEditorItem
+                    block={block}
+                    text={text}
+                    canEdit={canEdit}
+                    isActive={activeBlockId === bKey}
+                    onFocus={() => setActiveBlockId(bKey)}
+                    onChangeText={(newText) => handleTextChange(block.id, newText)}
+                    onChangeType={(newType) => handleChangeBlockType(block.id, newType)}
+                    onDelete={() => handleDeleteBlock(block.id)}
+                    onInsertAfter={(type) => handleAddBlock(type, undefined, block.id)}
+                    onEnter={() => handleAddBlock("paragraph", undefined, block.id)}
+                    onBackspaceEmpty={() => handleDeleteBlock(block.id)}
+                  />
                 </div>
               );
             })}
 
-            {/* Quick button to append new blocks */}
+            {/* Quick action block inserter dock */}
             <div
-              className={`pt-6 border-t border-dashed border-border/60 flex flex-wrap gap-2 ${
+              className={`pt-8 border-t border-dashed border-border/70 flex flex-wrap items-center gap-2 ${
                 canEdit ? "" : "hidden pointer-events-none"
               }`}
             >
@@ -682,19 +821,64 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => handleAddBlock("paragraph")}
-                className="h-8 text-xs gap-1.5 cursor-pointer"
+                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
               >
                 <Plus className="h-3.5 w-3.5" />
-                <span>Добавить абзац</span>
+                <span>Абзац</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAddBlock("heading1")}
+                className="h-8 text-xs gap-1.5 cursor-pointer font-bold hover:bg-primary/10"
+              >
+                <Heading1 className="h-3.5 w-3.5" />
+                <span>Заголовок H1</span>
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => handleAddBlock("heading2")}
-                className="h-8 text-xs gap-1.5 cursor-pointer"
+                className="h-8 text-xs gap-1.5 cursor-pointer font-semibold hover:bg-primary/10"
               >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Добавить заголовок</span>
+                <Heading2 className="h-3.5 w-3.5" />
+                <span>Заголовок H2</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAddBlock("quote")}
+                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
+              >
+                <Quote className="h-3.5 w-3.5" />
+                <span>Цитата</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAddBlock("todo")}
+                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+                <span>Задача (Todo)</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAddBlock("table")}
+                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
+              >
+                <TableIcon className="h-3.5 w-3.5" />
+                <span>Таблица</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAddBlock("image")}
+                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+                <span>Изображение</span>
               </Button>
             </div>
           </div>
@@ -704,6 +888,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         <EditorSidebar
           open={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
+          documentId={documentId}
           commits={commits}
           currentCommitId={currentCommitId}
           headings={headings}
@@ -720,14 +905,16 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         />
 
         {/* Time travel slider bottom dock */}
-        {timeTravelIndex !== null && (
+        {timeTravelIndex !== null && commits.length > 0 && (
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-4">
             <TimeTravelSlider
               commits={commits}
               currentIndex={timeTravelIndex}
               onIndexChange={(idx) => {
                 setTimeTravelIndex(idx);
-                setCurrentCommitId(commits[idx].id);
+                if (commits[idx]) {
+                  setCurrentCommitId(commits[idx].id);
+                }
               }}
               onExitTimeTravel={() => setTimeTravelIndex(null)}
               onForkBranch={(commitId) => {
@@ -743,7 +930,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       <EditorStatusbar
         wordCount={stats.words}
         charCount={stats.chars}
-        activeUsers={3}
+        activeUsers={onlineUsers.length || 1}
         branch={branch}
       />
 

@@ -20,6 +20,8 @@ export interface DbCommitRow {
   id: string;
   document_id: string;
   author_id: string;
+  author_name?: string;
+  author_avatar?: string | null;
   message: string;
   crdt_delta_storage_path: string;
   snapshot_storage_path: string | null;
@@ -65,6 +67,8 @@ export class MerkleDAGRepository {
         c.crdt_delta_storage_path,
         c.snapshot_storage_path,
         c.created_at,
+        u.name as author_name,
+        u.avatar_url as author_avatar,
         COALESCE(
           (
             SELECT array_agg(cp.parent_commit_id ORDER BY cp.parent_order ASC)
@@ -83,6 +87,7 @@ export class MerkleDAGRepository {
           'main'
         ) as branch
       FROM commits c
+      LEFT JOIN users u ON u.id = c.author_id
       WHERE c.document_id = $1
       ORDER BY c.created_at ASC
     `;
@@ -100,8 +105,8 @@ export class MerkleDAGRepository {
       message: row.message,
       author: {
         userId: row.author_id,
-        name: row.author_id === "00000000-0000-0000-0000-000000000000" ? "SyncPro Core Engine" : "Пользователь",
-        avatarUrl: null,
+        name: row.author_name || (row.author_id === "00000000-0000-0000-0000-000000000000" ? "SyncPro Core Engine" : "Пользователь"),
+        avatarUrl: row.author_avatar || null,
       },
       timestamp: new Date(row.created_at).getTime(),
       branch: row.branch,

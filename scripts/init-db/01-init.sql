@@ -117,6 +117,16 @@ CREATE TABLE IF NOT EXISTS branches (
     PRIMARY KEY (document_id, name)
 );
 
+-- Document Comments Table
+CREATE TABLE IF NOT EXISTS document_comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_document_comments_doc ON document_comments(document_id, created_at ASC);
+
 -- 6. Notifications Table (Production-grade user activity & alerts)
 CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
