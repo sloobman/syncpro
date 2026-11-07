@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { UserPlus, Copy, Check, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { UserPlus, Copy, Check, CheckCircle2, AlertCircle, Loader2, Trash2, Shield } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +28,7 @@ interface MemberItem {
   name: string;
   email: string;
   role: string;
+  roleTitle?: string;
 }
 
 export function InviteMembersDialog({
@@ -44,6 +45,7 @@ export function InviteMembersDialog({
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [members, setMembers] = useState<MemberItem[]>([]);
   const { user } = useAuthStore();
 
@@ -116,6 +118,59 @@ export function InviteMembersDialog({
     }
   };
 
+  const handleRoleChange = async (memberEmail: string, newRole: string) => {
+    if (!workspaceId) return;
+    setUpdatingMemberId(memberEmail);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          email: memberEmail.trim().toLowerCase(),
+          role: newRole,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInviteSuccess(data.message || "Роль участника обновлена");
+        loadMembers();
+        setTimeout(() => setInviteSuccess(null), 4000);
+      } else {
+        setInviteError(data.error || "Не удалось изменить роль");
+      }
+    } catch {
+      setInviteError("Сетевая ошибка при изменении роли");
+    } finally {
+      setUpdatingMemberId(null);
+    }
+  };
+
+  const handleRemoveMember = async (memberUserId: string) => {
+    if (!workspaceId) return;
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/members`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ userId: memberUserId }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setInviteSuccess(data.message || "Участник удален");
+        loadMembers();
+        setTimeout(() => setInviteSuccess(null), 4000);
+      } else {
+        setInviteError(data.error || "Не удалось удалить участника");
+      }
+    } catch {
+      setInviteError("Сетевая ошибка при удалении участника");
+    }
+  };
+
+  const currentMember = members.find((m) => m.email === user?.email);
+  const isOwner = currentMember ? currentMember.role === "owner" : true;
+
   // Fallback member if list is empty
   const displayMembers =
     members.length > 0
@@ -125,7 +180,8 @@ export function InviteMembersDialog({
             id: user?.id || "me",
             name: user?.name ? `${user.name} (Вы)` : "Вы",
             email: user?.email || "user@syncpro.dev",
-            role: "Владелец",
+            role: "owner",
+            roleTitle: "Владелец",
           },
         ];
 
@@ -139,16 +195,19 @@ export function InviteMembersDialog({
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Участники пространства</DialogTitle>
-          <DialogDescription>
-            Совместный доступ предоставляется только приглашенным пользователям
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-primary" />
+            Участники пространства
+          </DialogTitle>
+          <DialogDescription className="text-xs">
+            Приглашайте коллег и настраивайте уровень доступа: Редактор, Читатель или Комментатор.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-3">
-          {/* Notifications */}
+        <div className="space-y-4 pt-2">
+          {/* Status feedback */}
           {inviteSuccess && (
             <div className="flex items-center gap-2 p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
@@ -163,34 +222,41 @@ export function InviteMembersDialog({
             </div>
           )}
 
-          {/* Invite form */}
-          <form onSubmit={handleInviteSubmit} className="flex gap-2">
-            <Input
-              type="email"
-              placeholder="colleague@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="flex-1 text-xs"
-              required
-            />
-            <Select value={role} onValueChange={setRole}>
-              <SelectTrigger className="w-32 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="editor">Редактор</SelectItem>
-                <SelectItem value="commenter">Комменты</SelectItem>
-                <SelectItem value="viewer">Читатель</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              type="submit"
-              disabled={loading || !email.trim() || !workspaceId}
-              className="text-xs shrink-0 cursor-pointer"
-            >
-              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Пригласить"}
-            </Button>
-          </form>
+          {/* Invite form - only for workspace owner */}
+          {isOwner ? (
+            <form onSubmit={handleInviteSubmit} className="flex gap-2">
+              <Input
+                type="email"
+                placeholder="colleague@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="flex-1 text-xs"
+                required
+              />
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger className="w-32 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="editor">Редактор</SelectItem>
+                  <SelectItem value="commenter">Комменты</SelectItem>
+                  <SelectItem value="viewer">Читатель</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                type="submit"
+                disabled={loading || !email.trim() || !workspaceId}
+                className="text-xs shrink-0 cursor-pointer"
+              >
+                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Пригласить"}
+              </Button>
+            </form>
+          ) : (
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/60 text-xs text-muted-foreground">
+              <Shield className="h-4 w-4 text-primary shrink-0" />
+              <span>У вас права читателя. Приглашать участников может только владелец пространства.</span>
+            </div>
+          )}
 
           {/* Members list */}
           <div className="space-y-2.5">
@@ -203,7 +269,7 @@ export function InviteMembersDialog({
                   key={m.id}
                   className="flex items-center justify-between p-3 bg-card hover:bg-muted/30 transition-colors"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0 pr-2">
                     <Avatar className="h-8 w-8 shrink-0">
                       <AvatarFallback className="text-xs bg-primary/10 text-primary font-medium">
                         {m.name.slice(0, 1).toUpperCase()}
@@ -216,9 +282,40 @@ export function InviteMembersDialog({
                       <p className="text-[11px] text-muted-foreground truncate">{m.email}</p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-medium text-muted-foreground px-2 py-0.5 rounded bg-muted shrink-0">
-                    {m.role}
-                  </span>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isOwner && m.role !== "owner" && m.email !== user?.email ? (
+                      <>
+                        <Select
+                          value={m.role}
+                          onValueChange={(val) => handleRoleChange(m.email, val)}
+                          disabled={updatingMemberId === m.email}
+                        >
+                          <SelectTrigger className="h-7 w-28 text-[11px] bg-background">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="editor">Редактор</SelectItem>
+                            <SelectItem value="commenter">Комменты</SelectItem>
+                            <SelectItem value="viewer">Читатель</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleRemoveMember(m.id)}
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive cursor-pointer"
+                          title="Удалить участника"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </>
+                    ) : (
+                      <span className="text-[11px] font-medium text-muted-foreground px-2 py-0.5 rounded bg-muted shrink-0">
+                        {m.roleTitle || (m.role === "viewer" ? "Читатель" : m.role === "commenter" ? "Комменты" : m.role === "owner" ? "Владелец" : "Редактор")}
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -261,7 +358,7 @@ export function InviteMembersDialog({
               </Button>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Доступ по ссылке будет открыт только тем пользователям, которых вы добавили в список выше.
+              Доступ по ссылке будет открыт только тем пользователям, которым вы предоставили доступ в списке выше.
             </p>
           </div>
         </div>

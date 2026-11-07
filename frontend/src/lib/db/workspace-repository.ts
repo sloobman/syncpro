@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { query } from "./postgres";
-import type { Workspace, Document } from "@/types";
+import type { Workspace, Document, MemberRole } from "@/types";
 
 export interface DbWorkspaceRow {
   id: string;
@@ -11,6 +11,7 @@ export interface DbWorkspaceRow {
   created_at: string;
   document_count: number;
   member_count: number;
+  current_user_role?: string;
 }
 
 export interface DbDocumentRow {
@@ -29,7 +30,8 @@ export interface WorkspaceMemberInfo {
   name: string;
   email: string;
   avatarUrl: string | null;
-  role: string;
+  role: MemberRole;
+  roleTitle: string;
   joinedAt: string;
 }
 
@@ -78,7 +80,75 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Retrieves all workspaces accessible to a user (owned or invited).
+   * Retrieves the user's role in the workspace ('owner', 'editor', 'commenter', 'viewer')
+   * or null if the user is not a member.
+   */
+  static async getUserRoleInWorkspace(workspaceId: string, userId: string): Promise<MemberRole | null> {
+    const validWsId = toValidUUID(workspaceId);
+    const validUserId = toValidUUID(userId);
+
+    try {
+      const wsSql = `SELECT owner_id FROM workspaces WHERE id = $1`;
+      const wsRes = await query<{ owner_id: string }>(wsSql, [validWsId]);
+      if (wsRes.rows.length === 0) return null;
+      if (wsRes.rows[0].owner_id === validUserId) return "owner";
+
+      const memSql = `SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`;
+      const memRes = await query<{ role: string }>(memSql, [validWsId, validUserId]);
+      if (memRes.rows.length > 0) {
+        const rawRole = (memRes.rows[0].role || "").toLowerCase();
+        if (rawRole === "owner") return "owner";
+        if (rawRole === "commenter") return "commenter";
+        if (rawRole === "viewer" || rawRole === "reader") return "viewer";
+        return "editor";
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Checks whether the user can edit in this workspace (owner, editor).
+   * Viewers and commenters cannot create, delete, or edit documents.
+   */
+  static async canUserEditWorkspace(workspaceId: string, userId: string): Promise<boolean> {
+    const role = await this.getUserRoleInWorkspace(workspaceId, userId);
+    return role === "owner" || role === "editor";
+  }
+
+  /**
+   * Checks whether the user can manage workspace settings and members (owner only).
+   */
+  static async canUserManageWorkspace(workspaceId: string, userId: string): Promise<boolean> {
+    const role = await this.getUserRoleInWorkspace(workspaceId, userId);
+    return role === "owner";
+  }
+
+  /**
+   * Checks whether the user can edit a specific document.
+   */
+  static async canUserEditDocument(documentId: string, userId: string): Promise<boolean> {
+    const validDocId = toValidUUID(documentId);
+    const validUserId = toValidUUID(userId);
+
+    try {
+      const docSql = `SELECT workspace_id, created_by FROM documents WHERE id = $1`;
+      const docRes = await query<{ workspace_id: string | null; created_by: string | null }>(docSql, [validDocId]);
+      if (docRes.rows.length === 0) return false;
+
+      const row = docRes.rows[0];
+      if (row.workspace_id) {
+        return this.canUserEditWorkspace(row.workspace_id, userId);
+      }
+      return row.created_by === validUserId;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Retrieves all workspaces accessible to a user (owned or invited) with user's role.
    */
   static async getUserWorkspaces(userId: string): Promise<Workspace[]> {
     const validUserId = toValidUUID(userId);
@@ -97,7 +167,14 @@ export class WorkspaceRepository {
         COALESCE(
           (SELECT count(*)::int FROM workspace_members wm WHERE wm.workspace_id = w.id),
           1
-        ) as member_count
+        ) as member_count,
+        CASE
+          WHEN w.owner_id = $1 THEN 'owner'
+          ELSE COALESCE(
+            (SELECT wm.role FROM workspace_members wm WHERE wm.workspace_id = w.id AND wm.user_id = $1 LIMIT 1),
+            'viewer'
+          )
+        END as current_user_role
       FROM workspaces w
       WHERE w.owner_id = $1 
          OR EXISTS (
@@ -109,18 +186,31 @@ export class WorkspaceRepository {
 
     try {
       const res = await query<DbWorkspaceRow>(sql, [validUserId]);
-      return res.rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        slug: r.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        description: r.description,
-        iconEmoji: r.icon_emoji,
-        ownerId: r.owner_id,
-        memberCount: r.member_count,
-        documentCount: r.document_count,
-        createdAt: r.created_at,
-        updatedAt: r.created_at,
-      }));
+      return res.rows.map((r) => {
+        const rawRole = (r.current_user_role || (r.owner_id === validUserId ? "owner" : "viewer")).toLowerCase();
+        const role: MemberRole =
+          rawRole === "owner"
+            ? "owner"
+            : rawRole === "commenter"
+            ? "commenter"
+            : rawRole === "viewer" || rawRole === "reader"
+            ? "viewer"
+            : "editor";
+
+        return {
+          id: r.id,
+          name: r.name,
+          slug: r.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+          description: r.description,
+          iconEmoji: r.icon_emoji,
+          ownerId: r.owner_id,
+          currentUserRole: role,
+          memberCount: r.member_count,
+          documentCount: r.document_count,
+          createdAt: r.created_at,
+          updatedAt: r.created_at,
+        };
+      });
     } catch (err) {
       console.error("[WorkspaceRepository.getUserWorkspaces error]:", err);
       return [];
@@ -175,6 +265,7 @@ export class WorkspaceRepository {
       description: row.description,
       iconEmoji: row.icon_emoji,
       ownerId: row.owner_id,
+      currentUserRole: "owner",
       memberCount: 1,
       documentCount: 0,
       createdAt: row.created_at,
@@ -201,6 +292,7 @@ export class WorkspaceRepository {
 
 ## Возможности вашей рабочей области
 - **Совместное редактирование по приглашению:** Приглашайте коллег через диалог «Участники» в правом верхнем углу. Другие пользователи не увидят ваши документы без вашего приглашения.
+- **Гибкие роли:** Выбирайте права «Редактор», «Читатель» или «Комменты». Читатели могут знакомиться с материалами без риска случайных изменений.
 - **Автономность:** Редактор сохраняет ваши изменения локально и мгновенно синхронизирует их при подключении к сети.
 - **История версий (Merkle-DAG):** Каждая правка фиксируется криптографическим коммитом. Вы можете перемещаться во времени и объединять ветки без конфликтов.
 
@@ -221,9 +313,10 @@ export class WorkspaceRepository {
    */
   static async getWorkspaceById(id: string, userId?: string): Promise<Workspace | null> {
     const validId = toValidUUID(id);
+    const validUserId = userId ? toValidUUID(userId) : null;
 
-    if (userId) {
-      const hasAccess = await this.isUserMemberOrOwner(validId, userId);
+    if (validUserId) {
+      const hasAccess = await this.isUserMemberOrOwner(validId, validUserId);
       if (!hasAccess) return null;
     }
 
@@ -242,15 +335,32 @@ export class WorkspaceRepository {
         COALESCE(
           (SELECT count(*)::int FROM workspace_members wm WHERE wm.workspace_id = w.id),
           1
-        ) as member_count
+        ) as member_count,
+        CASE
+          WHEN $2::uuid IS NOT NULL AND w.owner_id = $2::uuid THEN 'owner'
+          ELSE COALESCE(
+            (SELECT wm.role FROM workspace_members wm WHERE wm.workspace_id = w.id AND wm.user_id = $2::uuid LIMIT 1),
+            'viewer'
+          )
+        END as current_user_role
       FROM workspaces w
       WHERE w.id = $1
     `;
 
     try {
-      const res = await query<DbWorkspaceRow>(sql, [validId]);
+      const res = await query<DbWorkspaceRow>(sql, [validId, validUserId]);
       if (res.rows.length === 0) return null;
       const r = res.rows[0];
+      const rawRole = (r.current_user_role || (validUserId && r.owner_id === validUserId ? "owner" : "viewer")).toLowerCase();
+      const role: MemberRole =
+        rawRole === "owner"
+          ? "owner"
+          : rawRole === "commenter"
+          ? "commenter"
+          : rawRole === "viewer" || rawRole === "reader"
+          ? "viewer"
+          : "editor";
+
       return {
         id: r.id,
         name: r.name,
@@ -258,6 +368,7 @@ export class WorkspaceRepository {
         description: r.description,
         iconEmoji: r.icon_emoji,
         ownerId: r.owner_id,
+        currentUserRole: role,
         memberCount: r.member_count,
         documentCount: r.document_count,
         createdAt: r.created_at,
@@ -293,14 +404,38 @@ export class WorkspaceRepository {
 
     try {
       const res = await query<DbMemberRow>(sql, [validWsId]);
-      return res.rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        email: r.email,
-        avatarUrl: r.avatar_url,
-        role: r.role === "owner" ? "Владелец" : r.role === "admin" ? "Администратор" : "Редактор",
-        joinedAt: r.joined_at,
-      }));
+      return res.rows.map((r) => {
+        const cleanRole = (r.role || "").toLowerCase();
+        let roleTitle = "Редактор";
+        let normalizedRole: MemberRole = "editor";
+
+        if (cleanRole === "owner") {
+          roleTitle = "Владелец";
+          normalizedRole = "owner";
+        } else if (cleanRole === "admin") {
+          roleTitle = "Администратор";
+          normalizedRole = "editor";
+        } else if (cleanRole === "editor" || cleanRole === "member") {
+          roleTitle = "Редактор";
+          normalizedRole = "editor";
+        } else if (cleanRole === "commenter") {
+          roleTitle = "Комменты";
+          normalizedRole = "commenter";
+        } else if (cleanRole === "viewer" || cleanRole === "reader") {
+          roleTitle = "Читатель";
+          normalizedRole = "viewer";
+        }
+
+        return {
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          avatarUrl: r.avatar_url,
+          role: normalizedRole,
+          roleTitle,
+          joinedAt: r.joined_at,
+        };
+      });
     } catch (err) {
       console.error("[WorkspaceRepository.getWorkspaceMembers error]:", err);
       return [];
@@ -308,9 +443,7 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Invites a member by email to a workspace.
-   * If user already exists in DB, adds them directly to workspace_members.
-   * Otherwise saves pending invitation so they join automatically when they register.
+   * Invites a member by email to a workspace or updates their role.
    */
   static async inviteMember(params: {
     workspaceId: string;
@@ -322,11 +455,27 @@ export class WorkspaceRepository {
     const validInviterId = toValidUUID(params.inviterId);
     const email = params.email.trim().toLowerCase();
 
-    // Verify inviter has access
-    const isAllowed = await this.isUserMemberOrOwner(validWsId, validInviterId);
-    if (!isAllowed) {
-      return { success: false, isPending: false, message: "Нет прав на приглашение участников" };
+    // Verify inviter has management access
+    const canManage = await this.canUserManageWorkspace(validWsId, validInviterId);
+    if (!canManage) {
+      return {
+        success: false,
+        isPending: false,
+        message: "Только владелец пространства может приглашать участников или изменять роли",
+      };
     }
+
+    const rawRole = (params.role || "editor").toLowerCase();
+    const validRole = ["editor", "commenter", "viewer"].includes(rawRole)
+      ? rawRole
+      : "viewer";
+
+    const roleName =
+      validRole === "viewer"
+        ? "Читатель"
+        : validRole === "commenter"
+        ? "Комментатор"
+        : "Редактор";
 
     // Check if user exists
     const userRes = await query(`SELECT id, name, email FROM users WHERE LOWER(email) = $1`, [email]);
@@ -338,12 +487,12 @@ export class WorkspaceRepository {
          VALUES ($1, $2, $3)
          ON CONFLICT (workspace_id, user_id) 
          DO UPDATE SET role = EXCLUDED.role`,
-        [validWsId, targetUser.id, params.role]
+        [validWsId, targetUser.id, validRole]
       );
       return {
         success: true,
         isPending: false,
-        message: `Пользователь ${targetUser.name} (${email}) успешно добавлен в рабочее пространство`,
+        message: `Пользователь ${targetUser.name} (${email}) успешно назначен на роль «${roleName}»`,
       };
     } else {
       // Save to workspace_invitations
@@ -353,7 +502,7 @@ export class WorkspaceRepository {
            VALUES ($1, $2, $3, $4)
            ON CONFLICT (workspace_id, email)
            DO UPDATE SET role = EXCLUDED.role`,
-          [validWsId, email, params.role, validInviterId]
+          [validWsId, email, validRole, validInviterId]
         );
       } catch {
         // ignore
@@ -361,8 +510,41 @@ export class WorkspaceRepository {
       return {
         success: true,
         isPending: true,
-        message: `Приглашение отправлено на ${email}. Доступ откроется сразу после регистрации`,
+        message: `Приглашение с ролью «${roleName}» отправлено на ${email}. Доступ откроется сразу после регистрации`,
       };
+    }
+  }
+
+  /**
+   * Removes a member from a workspace.
+   */
+  static async removeMember(params: {
+    workspaceId: string;
+    targetUserId: string;
+    requesterId: string;
+  }): Promise<{ success: boolean; message: string }> {
+    const validWsId = toValidUUID(params.workspaceId);
+    const validTargetId = toValidUUID(params.targetUserId);
+    const validRequesterId = toValidUUID(params.requesterId);
+
+    const canManage = await this.canUserManageWorkspace(validWsId, validRequesterId);
+    if (!canManage) {
+      return { success: false, message: "Только владелец может удалять участников" };
+    }
+
+    const ws = await query<{ owner_id: string }>(`SELECT owner_id FROM workspaces WHERE id = $1`, [validWsId]);
+    if (ws.rows.length > 0 && ws.rows[0].owner_id === validTargetId) {
+      return { success: false, message: "Нельзя удалить владельца пространства" };
+    }
+
+    try {
+      await query(`DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, [
+        validWsId,
+        validTargetId,
+      ]);
+      return { success: true, message: "Участник успешно удален из пространства" };
+    } catch {
+      return { success: false, message: "Ошибка удаления участника" };
     }
   }
 
@@ -378,7 +560,8 @@ export class WorkspaceRepository {
       SELECT wi.workspace_id, $1, wi.role
       FROM workspace_invitations wi
       WHERE LOWER(wi.email) = $2
-      ON CONFLICT (workspace_id, user_id) DO NOTHING
+      ON CONFLICT (workspace_id, user_id) 
+      DO UPDATE SET role = EXCLUDED.role
     `;
 
     try {
@@ -391,14 +574,22 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Retrieves all documents for a given workspace with access check.
+   * Retrieves all documents for a given workspace with access check and user role.
    */
   static async getWorkspaceDocuments(workspaceId: string, userId?: string): Promise<Document[]> {
     const validWsId = toValidUUID(workspaceId);
 
+    let userRole: MemberRole = "viewer";
+    let canEdit = false;
+
     if (userId) {
       const hasAccess = await this.isUserMemberOrOwner(validWsId, userId);
       if (!hasAccess) return [];
+      const role = await this.getUserRoleInWorkspace(validWsId, userId);
+      if (role) {
+        userRole = role;
+        canEdit = role === "owner" || role === "editor";
+      }
     }
 
     const sql = `
@@ -423,6 +614,8 @@ export class WorkspaceRepository {
         title: r.title,
         defaultBranch: r.default_branch || "main",
         createdBy: r.created_by || "user",
+        currentUserRole: userRole,
+        canEdit,
         wordCount: 0,
         isFavorite: false,
         isArchived: false,
@@ -480,6 +673,8 @@ export class WorkspaceRepository {
       title: row.title,
       defaultBranch: row.default_branch || "main",
       createdBy: row.created_by || "",
+      currentUserRole: "owner",
+      canEdit: true,
       wordCount: 0,
       isFavorite: false,
       isArchived: false,
@@ -489,7 +684,7 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Updates an existing document (title, content, updated_at).
+   * Updates an existing document (title, content, updated_at) with strict edit permission check.
    */
   static async updateDocument(
     id: string,
@@ -499,8 +694,11 @@ export class WorkspaceRepository {
     const validId = toValidUUID(id);
 
     if (userId) {
-      const doc = await this.getDocumentById(id, userId);
-      if (!doc) return false;
+      const canEdit = await this.canUserEditDocument(id, userId);
+      if (!canEdit) {
+        console.warn(`[WorkspaceRepository.updateDocument] User ${userId} denied edit access to doc ${id}`);
+        return false;
+      }
     }
 
     const sets: string[] = ["updated_at = NOW()"];
@@ -527,12 +725,17 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Retrieves document metadata and content with access verification.
+   * Retrieves document metadata and content with access verification and edit rights.
    */
   static async getDocumentById(
     id: string,
     userId?: string
-  ): Promise<{ document: Document; content: string } | null> {
+  ): Promise<{
+    document: Document;
+    content: string;
+    userRole: MemberRole;
+    canEdit: boolean;
+  } | null> {
     const validId = toValidUUID(id);
     const sql = `SELECT * FROM documents WHERE id = $1`;
 
@@ -541,10 +744,27 @@ export class WorkspaceRepository {
       if (res.rows.length === 0) return null;
       const row = res.rows[0];
 
-      if (userId && row.workspace_id) {
-        const hasAccess = await this.isUserMemberOrOwner(row.workspace_id, userId);
-        if (!hasAccess && row.created_by !== toValidUUID(userId)) {
-          return null;
+      let userRole: MemberRole = "viewer";
+      let canEdit = false;
+
+      if (userId) {
+        const validUserId = toValidUUID(userId);
+        if (row.workspace_id) {
+          const hasAccess = await this.isUserMemberOrOwner(row.workspace_id, userId);
+          if (!hasAccess && row.created_by !== validUserId) {
+            return null;
+          }
+          const role = await this.getUserRoleInWorkspace(row.workspace_id, userId);
+          if (role) {
+            userRole = role;
+            canEdit = role === "owner" || role === "editor";
+          }
+        } else {
+          if (row.created_by !== validUserId) {
+            return null;
+          }
+          userRole = "owner";
+          canEdit = true;
         }
       }
 
@@ -555,6 +775,8 @@ export class WorkspaceRepository {
           title: row.title,
           defaultBranch: row.default_branch || "main",
           createdBy: row.created_by || "",
+          currentUserRole: userRole,
+          canEdit,
           wordCount: 0,
           isFavorite: false,
           isArchived: false,
@@ -562,6 +784,8 @@ export class WorkspaceRepository {
           updatedAt: row.updated_at,
         },
         content: row.content || "",
+        userRole,
+        canEdit,
       };
     } catch (err) {
       console.error("[WorkspaceRepository.getDocumentById error]:", err);

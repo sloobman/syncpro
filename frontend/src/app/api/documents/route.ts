@@ -20,10 +20,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (workspaceId) {
-      const hasAccess = await WorkspaceRepository.isUserMemberOrOwner(workspaceId, user.id);
-      if (!hasAccess) {
+      const canEdit = await WorkspaceRepository.canUserEditWorkspace(workspaceId, user.id);
+      if (!canEdit) {
         return NextResponse.json(
-          { error: "Нет доступа к этому пространству" },
+          { error: "Доступ запрещен. У вас права только на чтение в этом пространстве" },
           { status: 403 }
         );
       }

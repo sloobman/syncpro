@@ -159,6 +159,8 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const [blockTexts, setBlockTexts] = useState<Record<string, string>>({});
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
+  const [canEdit, setCanEdit] = useState(true);
+  const [userRole, setUserRole] = useState<string>("owner");
 
   // CRDT Document instance & save timer ref
   const docRef = useRef<CRDTDocument | null>(null);
@@ -199,7 +201,24 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     fetch(`/api/documents/${documentId}`, { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.document?.title) {
+        if (!data) return;
+        if (data.document?.title) {
+          setTitle(data.document.title);
+        }
+        if (data.canEdit !== undefined) {
+          setCanEdit(data.canEdit);
+        }
+        if (data.userRole) {
+          setUserRole(data.userRole);
+        }
+        if (data.content) {
+          const freshDoc = new CRDTDocument(1);
+          docRef.current = freshDoc;
+          initCRDTFromMarkdown(freshDoc, data.content);
+          freshDoc.onUpdate(refreshBlocks);
+          refreshBlocks();
+        }
+        if (false) {
           setTitle(data.document.title);
           if (
             data?.content &&
@@ -220,7 +239,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const triggerAutoSave = useCallback(
     (newTitle?: string) => {
       const doc = docRef.current;
-      if (!doc) return;
+      if (!doc || !canEdit) return;
 
       setSaveStatus("saving");
       if (saveTimeoutRef.current) {
@@ -234,13 +253,13 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         setSaveStatus("saved");
       }, 400);
     },
-    [documentId, title]
+    [canEdit, documentId, title]
   );
 
   // Manual save handler (Save button / Ctrl+S)
   const handleManualSave = useCallback(async () => {
     const doc = docRef.current;
-    if (!doc) return;
+    if (!doc || !canEdit) return;
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -268,7 +287,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     }
 
     setSaveStatus("saved");
-  }, [documentId, title, branch, currentCommitId]);
+  }, [branch, canEdit, currentCommitId, documentId, title]);
 
   // Keyboard shortcut Ctrl+S / Cmd+S
   useEffect(() => {
@@ -285,18 +304,19 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   // Handle title changes
   const handleTitleChange = useCallback(
     (newTitle: string) => {
+      if (!canEdit) return;
       setTitle(newTitle);
       useWorkspaceStore.getState().updateDocument(documentId, { title: newTitle });
       triggerAutoSave(newTitle);
     },
-    [documentId, triggerAutoSave]
+    [canEdit, documentId, triggerAutoSave]
   );
 
   // Handle text input modification inside a block
   const handleTextChange = useCallback(
     (blockId: ID, newText: string) => {
       const doc = docRef.current;
-      if (!doc) return;
+      if (!doc || !canEdit) return;
 
       const current = doc.getBlockText(blockId);
       if (newText === current) return;
@@ -316,14 +336,14 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
 
       triggerAutoSave();
     },
-    [triggerAutoSave]
+    [canEdit, triggerAutoSave]
   );
 
   // Add a new block to the CRDT tree
   const handleAddBlock = useCallback(
     (type: BlockType = "paragraph", initialText?: string) => {
       const doc = docRef.current;
-      if (!doc) return;
+      if (!doc || !canEdit) return;
 
       const rootBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
       const lastKey = rootBlocks.length > 0 ? rootBlocks[rootBlocks.length - 1].orderKey : null;
@@ -337,25 +357,25 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
 
       triggerAutoSave();
     },
-    [triggerAutoSave]
+    [canEdit, triggerAutoSave]
   );
 
   // Delete a block from the CRDT tree
   const handleDeleteBlock = useCallback(
     (blockId: ID) => {
       const doc = docRef.current;
-      if (!doc) return;
+      if (!doc || !canEdit) return;
       doc.deleteBlock(blockId);
       triggerAutoSave();
     },
-    [triggerAutoSave]
+    [canEdit, triggerAutoSave]
   );
 
   // Toolbar action execution
   const handleToolbarAction = useCallback(
     (action: string) => {
       const doc = docRef.current;
-      if (!doc) return;
+      if (!doc || !canEdit) return;
 
       const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
       if (activeBlocks.length === 0) {
@@ -433,7 +453,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           break;
       }
     },
-    [activeBlockId, handleAddBlock, triggerAutoSave]
+    [activeBlockId, canEdit, handleAddBlock, triggerAutoSave]
   );
 
   // Export handlers
@@ -542,6 +562,16 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       <EditorTopbar
         title={title}
         onTitleChange={handleTitleChange}
+        canEdit={canEdit}
+        roleTitle={
+          userRole === "viewer"
+            ? "Читатель"
+            : userRole === "commenter"
+            ? "Комменты"
+            : userRole === "owner"
+            ? "Владелец"
+            : "Редактор"
+        }
         currentBranch={branch}
         branches={branches}
         onSelectBranch={handleSelectBranch}
@@ -551,10 +581,10 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         onToggleHistory={() => setSidebarOpen(true)}
         onToggleDiff={() => setIsDiffOpen(!isDiffOpen)}
         saveStatus={saveStatus}
-        onSave={handleManualSave}
+        onSave={canEdit ? handleManualSave : undefined}
       />
 
-      <EditorToolbar onAction={handleToolbarAction} />
+      <EditorToolbar onAction={handleToolbarAction} disabled={!canEdit} />
 
       {/* Main editor area */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
@@ -604,7 +634,8 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
                     {block.blockType.startsWith("heading") ? (
                       <input
                         value={text}
-                        onChange={(e) => handleTextChange(block.id, e.target.value)}
+                        readOnly={!canEdit}
+                        onChange={(e) => canEdit && handleTextChange(block.id, e.target.value)}
                         className={`w-full font-bold tracking-tight bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary focus:outline-none py-1 text-foreground ${
                           block.blockType === "heading1"
                             ? "text-2xl sm:text-3xl"
@@ -618,7 +649,8 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
                       <textarea
                         value={text}
                         rows={Math.max(2, Math.ceil(text.length / 80))}
-                        onChange={(e) => handleTextChange(block.id, e.target.value)}
+                        readOnly={!canEdit}
+                        onChange={(e) => canEdit && handleTextChange(block.id, e.target.value)}
                         className="w-full text-sm sm:text-base leading-relaxed bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary focus:outline-none resize-none py-1 text-foreground/90 font-normal"
                         placeholder="Текст абзаца..."
                       />
@@ -628,8 +660,10 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleDeleteBlock(block.id)}
-                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0 mt-1 cursor-pointer"
+                    onClick={() => canEdit && handleDeleteBlock(block.id)}
+                    className={`h-7 w-7 transition-opacity text-muted-foreground hover:text-destructive shrink-0 mt-1 cursor-pointer ${
+                      canEdit ? "opacity-0 group-hover:opacity-100" : "hidden pointer-events-none"
+                    }`}
                     title="Удалить блок"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -639,7 +673,11 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             })}
 
             {/* Quick button to append new blocks */}
-            <div className="pt-6 border-t border-dashed border-border/60 flex flex-wrap gap-2">
+            <div
+              className={`pt-6 border-t border-dashed border-border/60 flex flex-wrap gap-2 ${
+                canEdit ? "" : "hidden pointer-events-none"
+              }`}
+            >
               <Button
                 variant="outline"
                 size="sm"
