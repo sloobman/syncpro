@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState } from "react";
 import {
   Bold,
   Italic,
@@ -19,32 +20,108 @@ import {
   Undo2,
   Redo2,
   Eye,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  AlignJustify,
+  Highlighter,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { BUILT_IN_FONTS, type FontItem } from "@/lib/fonts/font-manager";
+import { CustomFontDialog } from "@/components/editor/custom-font-dialog";
 
 export interface EditorToolbarProps {
-  onAction?: (action: string) => void;
+  onAction?: (action: string, value?: string) => void;
   disabled?: boolean;
+  workspaceId?: string;
+  currentFont?: string;
+  currentSize?: string;
+  onFontChange?: (font: string) => void;
+  onSizeChange?: (size: string) => void;
+  onColorChange?: (color: string) => void;
+  onHighlightChange?: (color: string) => void;
+  onAlignChange?: (align: "left" | "center" | "right" | "justify") => void;
 }
 
-export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps) {
+const TEXT_COLORS = [
+  { name: "Стандартный", value: "inherit", bg: "bg-foreground" },
+  { name: "Серый", value: "#64748b", bg: "bg-slate-500" },
+  { name: "Тёмно-серый", value: "#334155", bg: "bg-slate-700" },
+  { name: "Красный", value: "#ef4444", bg: "bg-red-500" },
+  { name: "Оранжевый", value: "#f97316", bg: "bg-orange-500" },
+  { name: "Янтарный", value: "#f59e0b", bg: "bg-amber-500" },
+  { name: "Изумрудный", value: "#10b981", bg: "bg-emerald-500" },
+  { name: "Зелёный", value: "#16a34a", bg: "bg-green-600" },
+  { name: "Голубой", value: "#0ea5e9", bg: "bg-sky-500" },
+  { name: "Синий", value: "#3b82f6", bg: "bg-blue-500" },
+  { name: "Индиго", value: "#6366f1", bg: "bg-indigo-500" },
+  { name: "Фиолетовый", value: "#8b5cf6", bg: "bg-violet-500" },
+  { name: "Пурпурный", value: "#d946ef", bg: "bg-fuchsia-500" },
+  { name: "Розовый", value: "#ec4899", bg: "bg-pink-500" },
+  { name: "Бордовый", value: "#be123c", bg: "bg-rose-700" },
+  { name: "Коричневый", value: "#78350f", bg: "bg-amber-900" },
+];
+
+const HIGHLIGHT_COLORS = [
+  { name: "Без подсветки", value: "transparent", bg: "border border-dashed border-border" },
+  { name: "Жёлтый", value: "#fef08a", bg: "bg-yellow-200" },
+  { name: "Зелёный", value: "#bbf7d0", bg: "bg-green-200" },
+  { name: "Голубой", value: "#bae6fd", bg: "bg-sky-200" },
+  { name: "Розовый", value: "#fbcfe8", bg: "bg-pink-200" },
+  { name: "Оранжевый", value: "#fed7aa", bg: "bg-orange-200" },
+  { name: "Лавандовый", value: "#e9d5ff", bg: "bg-purple-200" },
+];
+
+const FONT_SIZES = ["12px", "14px", "16px", "18px", "20px", "24px", "28px", "32px", "36px"];
+
+export function EditorToolbar({
+  onAction,
+  disabled = false,
+  workspaceId,
+  currentFont = "Inter, sans-serif",
+  currentSize = "16px",
+  onFontChange,
+  onSizeChange,
+  onColorChange,
+  onHighlightChange,
+  onAlignChange,
+}: EditorToolbarProps) {
+  const [customFonts, setCustomFonts] = useState<FontItem[]>([]);
+  const [isFontDialogOpen, setIsFontDialogOpen] = useState(false);
+  const [selectedColor, setSelectedColor] = useState<string>("inherit");
+  const [selectedHighlight, setSelectedHighlight] = useState<string>("transparent");
+
   if (disabled) {
     return (
       <div className="h-10 border-b border-border bg-muted/40 backdrop-blur-md px-4 flex items-center justify-between text-xs text-muted-foreground select-none z-10">
         <div className="flex items-center gap-2">
           <Eye className="h-4 w-4 text-primary shrink-0" />
           <span className="font-medium text-foreground">Режим только для чтения</span>
-          <span className="hidden sm:inline">— у вас роль «Читатель». Редактирование текста и структуры документа отключено.</span>
+          <span className="hidden sm:inline">
+            — у вас роль «Читатель». Редактирование текста и структуры документа отключено.
+          </span>
         </div>
       </div>
     );
   }
 
-  const trigger = (action: string) => {
+  const trigger = (action: string, value?: string) => {
     if (onAction) {
-      onAction(action);
+      onAction(action, value);
     }
   };
 
@@ -52,11 +129,59 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
     e.preventDefault();
   };
 
+  const handleFontSelect = (family: string) => {
+    if (family === "__add_font__") {
+      setIsFontDialogOpen(true);
+      return;
+    }
+    if (onFontChange) {
+      onFontChange(family);
+    } else {
+      trigger("fontName", family);
+    }
+  };
+
+  const handleSizeSelect = (size: string) => {
+    if (onSizeChange) {
+      onSizeChange(size);
+    } else {
+      trigger("fontSize", size);
+    }
+  };
+
+  const handleApplyColor = (color: string) => {
+    setSelectedColor(color);
+    if (onColorChange) {
+      onColorChange(color);
+    } else {
+      trigger("foreColor", color);
+    }
+  };
+
+  const handleApplyHighlight = (color: string) => {
+    setSelectedHighlight(color);
+    if (onHighlightChange) {
+      onHighlightChange(color);
+    } else {
+      trigger("hiliteColor", color);
+    }
+  };
+
+  const handleAlign = (align: "left" | "center" | "right" | "justify") => {
+    if (onAlignChange) {
+      onAlignChange(align);
+    } else {
+      trigger(`align-${align}`);
+    }
+  };
+
+  const allFonts = [...BUILT_IN_FONTS, ...customFonts];
+
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="h-10 border-b border-border bg-card/75 backdrop-blur-md px-3 flex items-center gap-1 overflow-x-auto no-scrollbar select-none z-10">
+      <div className="h-10 border-b border-border bg-card/85 backdrop-blur-md px-3 flex items-center gap-1 overflow-x-auto no-scrollbar select-none z-10">
         {/* Undo / Redo */}
-        <div className="flex items-center">
+        <div className="flex items-center shrink-0">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -87,58 +212,104 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
           </Tooltip>
         </div>
 
-        <Separator orientation="vertical" className="h-4 mx-1" />
+        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
 
-        {/* Headings */}
-        <div className="flex items-center">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onMouseDown={preventBlur}
-                onClick={() => trigger("h1")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <Heading1 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Заголовок 1</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onMouseDown={preventBlur}
-                onClick={() => trigger("h2")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <Heading2 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Заголовок 2</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onMouseDown={preventBlur}
-                onClick={() => trigger("h3")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <Heading3 className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Заголовок 3</TooltipContent>
-          </Tooltip>
+        {/* Font Family Selector */}
+        <div className="flex items-center shrink-0">
+          <Select value={currentFont} onValueChange={handleFontSelect}>
+            <SelectTrigger
+              className="h-7 text-xs w-[130px] sm:w-[145px] gap-1 px-2 border-border/70 hover:border-border font-medium cursor-pointer"
+              onMouseDown={preventBlur}
+            >
+              <SelectValue placeholder="Шрифт" />
+            </SelectTrigger>
+            <SelectContent className="max-h-[300px]">
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-muted-foreground uppercase">Без засечек (Sans)</SelectLabel>
+                {allFonts
+                  .filter((f) => f.category === "sans")
+                  .map((f) => (
+                    <SelectItem key={f.id} value={f.family} style={{ fontFamily: f.family }} className="text-xs">
+                      {f.name}
+                    </SelectItem>
+                  ))}
+              </SelectGroup>
+
+              <SelectSeparator />
+
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-muted-foreground uppercase">С засечками (Serif)</SelectLabel>
+                {allFonts
+                  .filter((f) => f.category === "serif")
+                  .map((f) => (
+                    <SelectItem key={f.id} value={f.family} style={{ fontFamily: f.family }} className="text-xs">
+                      {f.name}
+                    </SelectItem>
+                  ))}
+              </SelectGroup>
+
+              <SelectSeparator />
+
+              <SelectGroup>
+                <SelectLabel className="text-[10px] text-muted-foreground uppercase">Моноширинные (Mono)</SelectLabel>
+                {allFonts
+                  .filter((f) => f.category === "mono")
+                  .map((f) => (
+                    <SelectItem key={f.id} value={f.family} style={{ fontFamily: f.family }} className="text-xs">
+                      {f.name}
+                    </SelectItem>
+                  ))}
+              </SelectGroup>
+
+              {customFonts.length > 0 && (
+                <>
+                  <SelectSeparator />
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] text-muted-foreground uppercase">Пользовательские</SelectLabel>
+                    {customFonts.map((f) => (
+                      <SelectItem key={f.id} value={f.family} style={{ fontFamily: f.family }} className="text-xs">
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </>
+              )}
+
+              <SelectSeparator />
+
+              <SelectItem value="__add_font__" className="text-xs text-primary font-medium focus:text-primary cursor-pointer">
+                <div className="flex items-center gap-1.5">
+                  <Plus className="h-3 w-3" />
+                  <span>Добавить шрифт...</span>
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
-        <Separator orientation="vertical" className="h-4 mx-1" />
+        {/* Font Size Selector */}
+        <div className="flex items-center shrink-0">
+          <Select value={currentSize} onValueChange={handleSizeSelect}>
+            <SelectTrigger
+              className="h-7 text-xs w-[68px] px-1.5 border-border/70 hover:border-border font-medium cursor-pointer"
+              onMouseDown={preventBlur}
+            >
+              <SelectValue placeholder="Кегль" />
+            </SelectTrigger>
+            <SelectContent>
+              {FONT_SIZES.map((size) => (
+                <SelectItem key={size} value={size} className="text-xs">
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-        {/* Text formatting (True WYSIWYG) */}
-        <div className="flex items-center">
+        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
+
+        {/* Text formatting (Bold, Italic, Underline, Strike) */}
+        <div className="flex items-center shrink-0">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -197,10 +368,207 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
           </Tooltip>
         </div>
 
-        <Separator orientation="vertical" className="h-4 mx-1" />
+        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
+
+        {/* Text Color Picker Popover */}
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onMouseDown={preventBlur}
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer flex flex-col items-center justify-center gap-0.5"
+                >
+                  <span className="font-serif font-bold text-xs leading-none">A</span>
+                  <div
+                    className="h-0.5 w-3.5 rounded-full"
+                    style={{ backgroundColor: selectedColor === "inherit" ? "currentColor" : selectedColor }}
+                  />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Цвет текста</TooltipContent>
+          </Tooltip>
+          <PopoverContent className="w-56 p-2" align="start">
+            <div className="text-[11px] font-semibold text-muted-foreground mb-1.5 px-1">Цвет текста</div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {TEXT_COLORS.map((c) => (
+                <button
+                  key={c.name}
+                  onClick={() => handleApplyColor(c.value)}
+                  title={c.name}
+                  className="h-6 w-full rounded flex items-center justify-center hover:scale-110 transition-transform border border-border/50 cursor-pointer"
+                  style={{ backgroundColor: c.value === "inherit" ? undefined : c.value }}
+                >
+                  {c.value === "inherit" && <span className="text-[10px] font-mono">Авто</span>}
+                </button>
+              ))}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-xs h-6 mt-2 text-muted-foreground"
+              onClick={() => handleApplyColor("inherit")}
+            >
+              Сбросить цвет
+            </Button>
+          </PopoverContent>
+        </Popover>
+
+        {/* Highlight Color Picker Popover */}
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onMouseDown={preventBlur}
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer flex flex-col items-center justify-center gap-0.5"
+                >
+                  <Highlighter className="h-3.5 w-3.5" />
+                  <div
+                    className="h-0.5 w-3.5 rounded-full"
+                    style={{ backgroundColor: selectedHighlight === "transparent" ? "transparent" : selectedHighlight }}
+                  />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Цвет маркера (выделение)</TooltipContent>
+          </Tooltip>
+          <PopoverContent className="w-48 p-2" align="start">
+            <div className="text-[11px] font-semibold text-muted-foreground mb-1.5 px-1">Цвет маркера</div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {HIGHLIGHT_COLORS.map((c) => (
+                <button
+                  key={c.name}
+                  onClick={() => handleApplyHighlight(c.value)}
+                  title={c.name}
+                  className={`h-6 w-full rounded flex items-center justify-center hover:scale-110 transition-transform ${c.bg} cursor-pointer`}
+                >
+                  {c.value === "transparent" && <span className="text-[9px] text-muted-foreground">Нет</span>}
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
+
+        {/* Text Alignment (Left, Center, Right, Justify) */}
+        <div className="flex items-center shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventBlur}
+                onClick={() => handleAlign("left")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <AlignLeft className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>По левому краю</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventBlur}
+                onClick={() => handleAlign("center")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <AlignCenter className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>По центру</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventBlur}
+                onClick={() => handleAlign("right")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <AlignRight className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>По правому краю</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventBlur}
+                onClick={() => handleAlign("justify")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <AlignJustify className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>По ширине</TooltipContent>
+          </Tooltip>
+        </div>
+
+        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
+
+        {/* Headings */}
+        <div className="flex items-center shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventBlur}
+                onClick={() => trigger("h1")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Heading1 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Заголовок 1</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventBlur}
+                onClick={() => trigger("h2")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Heading2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Заголовок 2</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventBlur}
+                onClick={() => trigger("h3")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Heading3 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Заголовок 3</TooltipContent>
+          </Tooltip>
+        </div>
+
+        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
 
         {/* Lists & Tasks */}
-        <div className="flex items-center">
+        <div className="flex items-center shrink-0">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -235,7 +603,7 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
                 variant="ghost"
                 size="icon"
                 onMouseDown={preventBlur}
-                onClick={() => trigger("todo-list")}
+                onClick={() => trigger("todo")}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <ListTodo className="h-3.5 w-3.5" />
@@ -245,10 +613,10 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
           </Tooltip>
         </div>
 
-        <Separator orientation="vertical" className="h-4 mx-1" />
+        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
 
-        {/* Blocks & Rich items */}
-        <div className="flex items-center">
+        {/* Media & Structures */}
+        <div className="flex items-center shrink-0">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -289,14 +657,22 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
                 <Table className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Таблица</TooltipContent>
+            <TooltipContent>Вставить таблицу</TooltipContent>
           </Tooltip>
-        </div>
-
-        <Separator orientation="vertical" className="h-4 mx-1" />
-
-        {/* Media / Links */}
-        <div className="flex items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventBlur}
+                onClick={() => trigger("image")}
+                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Вставить изображение</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -311,21 +687,18 @@ export function EditorToolbar({ onAction, disabled = false }: EditorToolbarProps
             </TooltipTrigger>
             <TooltipContent>Вставить ссылку</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onMouseDown={preventBlur}
-                onClick={() => trigger("image")}
-                className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <ImageIcon className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Изображение</TooltipContent>
-          </Tooltip>
         </div>
+
+        {/* Custom Font Dialog */}
+        <CustomFontDialog
+          open={isFontDialogOpen}
+          onOpenChange={setIsFontDialogOpen}
+          workspaceId={workspaceId}
+          onFontAdded={(newFont) => {
+            setCustomFonts((prev) => [...prev, newFont]);
+            handleFontSelect(newFont.family);
+          }}
+        />
       </div>
     </TooltipProvider>
   );

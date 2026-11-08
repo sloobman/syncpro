@@ -12,7 +12,9 @@ import { ForkBranchDialog } from "@/components/editor/fork-branch-dialog";
 import type { BranchInfo } from "@/components/editor/branch-graph-view";
 import { CommitDialog } from "@/components/editor/commit-dialog";
 import { DiffViewer } from "@/components/editor/diff-viewer";
-import { BlockEditorItem } from "@/components/editor/block-editor-item";
+import { BlockEditorItem, applyFontSizeToSelection } from "@/components/editor/block-editor-item";
+import { DocumentConverter } from "@/lib/documents/document-converter";
+import { FontManager } from "@/lib/fonts/font-manager";
 import { CRDTDocument } from "@/lib/crdt/crdt-doc";
 import { formatID } from "@/lib/crdt/id";
 import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
@@ -156,6 +158,11 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const [branchesInfo, setBranchesInfo] = useState<BranchInfo[]>([]);
   const [isForkDialogOpen, setIsForkDialogOpen] = useState(false);
   const [forkSourceCommit, setForkSourceCommit] = useState<MerkleCommit | null>(null);
+  const [documentFont, setDocumentFont] = useState<string>("Inter, sans-serif");
+
+  useEffect(() => {
+    FontManager.preloadBuiltInFonts();
+  }, []);
   const [onlineUsers, setOnlineUsers] = useState<CollaboratorInfo[]>([]);
 
   // Per-branch drafts map so switching branches switches document content
@@ -513,6 +520,67 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     },
     [canEdit, refreshBlocks, triggerAutoSave]
   );
+
+  // Typography Toolbar Handlers
+  const handleFontChange = useCallback((fontFamily: string) => {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+      try {
+        document.execCommand("styleWithCSS", false, "true");
+        document.execCommand("fontName", false, fontFamily);
+      } catch {}
+    } else {
+      setDocumentFont(fontFamily);
+    }
+  }, []);
+
+  const handleSizeChange = useCallback((size: string) => {
+    const applied = applyFontSizeToSelection(size);
+    if (!applied && activeBlockId) {
+      const el = document.getElementById(`block-${activeBlockId}`);
+      if (el) {
+        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+        if (editable) {
+          editable.style.fontSize = size;
+        }
+      }
+    }
+  }, [activeBlockId]);
+
+  const handleColorChange = useCallback((color: string) => {
+    try {
+      document.execCommand("styleWithCSS", false, "true");
+      document.execCommand("foreColor", false, color);
+    } catch {}
+  }, []);
+
+  const handleHighlightChange = useCallback((color: string) => {
+    try {
+      document.execCommand("styleWithCSS", false, "true");
+      document.execCommand("hiliteColor", false, color);
+    } catch {}
+  }, []);
+
+  const handleAlignChange = useCallback((align: "left" | "center" | "right" | "justify") => {
+    const cmdMap: Record<string, string> = {
+      left: "justifyLeft",
+      center: "justifyCenter",
+      right: "justifyRight",
+      justify: "justifyFull",
+    };
+    try {
+      document.execCommand(cmdMap[align] || "justifyLeft", false);
+    } catch {}
+    if (activeBlockId) {
+      const el = document.getElementById(`block-${activeBlockId}`);
+      if (el) {
+        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+        if (editable) {
+          editable.style.textAlign = align;
+        }
+      }
+    }
+  }, [activeBlockId]);
 
   // Real WYSIWYG Toolbar action execution
   const handleToolbarAction = useCallback(
@@ -940,6 +1008,62 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     }
   }, []);
 
+  const handleExportDocx = useCallback(async () => {
+    const doc = docRef.current;
+    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
+    const blob = await DocumentConverter.exportDocx(title || "Документ", content);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${title.trim().replace(/\s+/g, "_") || "document"}.docx`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [blockTexts, title]);
+
+  const handleExportOdt = useCallback(async () => {
+    const doc = docRef.current;
+    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
+    const blob = await DocumentConverter.exportOdt(title || "Документ", content);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${title.trim().replace(/\s+/g, "_") || "document"}.odt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [blockTexts, title]);
+
+  const handleExportTxt = useCallback(() => {
+    const doc = docRef.current;
+    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${title.trim().replace(/\s+/g, "_") || "document"}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [blockTexts, title]);
+
+  const handleImportFile = useCallback(async (file: File) => {
+    if (!canEdit) return;
+    try {
+      const converted = await DocumentConverter.importFile(file);
+      if (converted.title && (!title || title === "Новый документ")) {
+        handleTitleChange(converted.title);
+      }
+      branchContentsRef.current[branch] = converted.markdown;
+      useWorkspaceStore.getState().saveDocumentContent(documentId, converted.markdown, converted.title || title);
+      const freshDoc = new CRDTDocument(1);
+      docRef.current = freshDoc;
+      initCRDTFromMarkdown(freshDoc, converted.markdown);
+      freshDoc.onUpdate(refreshBlocks);
+      refreshBlocks();
+      triggerAutoSave();
+    } catch (err) {
+      console.error("Failed to import file:", err);
+    }
+  }, [branch, canEdit, documentId, handleTitleChange, refreshBlocks, title, triggerAutoSave]);
+
   // Calculate total stats
   const stats = useMemo(() => {
     let words = 0;
@@ -1011,6 +1135,10 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         onCreateBranch={handleCreateBranch}
         onExportMarkdown={handleExportMarkdown}
         onExportPdf={handleExportPdf}
+        onExportDocx={handleExportDocx}
+        onExportOdt={handleExportOdt}
+        onExportTxt={handleExportTxt}
+        onImportFile={handleImportFile}
         onImportMarkdown={handleImportMarkdown}
         onDeleteDocument={handleDeleteDocument}
         onToggleHistory={() => setSidebarOpen(true)}
@@ -1020,7 +1148,16 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         onlineUsers={onlineUsers}
       />
 
-      <EditorToolbar onAction={handleToolbarAction} disabled={!canEdit} />
+      <EditorToolbar
+        onAction={handleToolbarAction}
+        disabled={!canEdit}
+        currentFont={documentFont}
+        onFontChange={handleFontChange}
+        onSizeChange={handleSizeChange}
+        onColorChange={handleColorChange}
+        onHighlightChange={handleHighlightChange}
+        onAlignChange={handleAlignChange}
+      />
 
       {/* Main editor area */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
@@ -1054,6 +1191,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           {/* Active document page */}
           <div
             className={`w-full ${canvasWidthClass} min-h-[1050px] bg-card border border-border shadow-xs rounded-2xl p-8 sm:p-14 relative text-foreground space-y-4 transition-all duration-200`}
+            style={{ fontFamily: documentFont }}
           >
             {blocksState.map((block) => {
               const bKey = formatID(block.id);
