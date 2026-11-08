@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import {
   FileText,
   Scissors,
@@ -8,6 +8,7 @@ import {
   ZoomOut,
   Maximize2,
   SlidersHorizontal,
+  Settings2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -29,7 +30,11 @@ import type {
   PageMargins,
   PageLayoutConfig,
 } from "@/lib/types/page-layout";
-import { PAGE_DIMENSIONS, MARGIN_VALUES, DEFAULT_PAGE_LAYOUT } from "@/lib/types/page-layout";
+import {
+  getPageDimensions,
+  getPageMargins,
+} from "@/lib/types/page-layout";
+import { PageSetupDialog } from "./page-setup-dialog";
 
 export interface LayoutToolbarProps {
   config: PageLayoutConfig;
@@ -44,9 +49,10 @@ export function LayoutToolbar({
   onInsertPageBreak,
   disabled = false,
 }: LayoutToolbarProps) {
-  const formatDims = PAGE_DIMENSIONS[config.format] ?? PAGE_DIMENSIONS[DEFAULT_PAGE_LAYOUT.format];
-  const currentDim = formatDims[config.orientation] ?? formatDims[DEFAULT_PAGE_LAYOUT.orientation];
-  const currentMargin = MARGIN_VALUES[config.margins] ?? MARGIN_VALUES[DEFAULT_PAGE_LAYOUT.margins];
+  const [isPageSetupOpen, setIsPageSetupOpen] = useState(false);
+
+  const currentDim = getPageDimensions(config);
+  const currentMargin = getPageMargins(config);
 
   const handleZoomChange = (delta: number) => {
     const nextZoom = Math.min(1.5, Math.max(0.6, Math.round((config.zoom + delta) * 100) / 100));
@@ -59,7 +65,7 @@ export function LayoutToolbar({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="h-10 border-b border-border bg-card/85 backdrop-blur-md px-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar select-none z-10 text-xs">
+      <div className="h-10 border-b border-border bg-card/85 backdrop-blur-md px-3 flex items-center gap-1.5 overflow-x-auto no-scrollbar select-none z-10 text-xs editor-ui-control">
         {/* Page Format Selector */}
         <div className="flex items-center gap-1 shrink-0">
           <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider hidden sm:inline">
@@ -67,37 +73,44 @@ export function LayoutToolbar({
           </span>
           <Select
             value={config.format}
-            onValueChange={(val) => onChangeConfig({ format: val as PageFormat })}
+            onValueChange={(val) => {
+              if (val === "custom") {
+                setIsPageSetupOpen(true);
+              } else {
+                onChangeConfig({ format: val as PageFormat });
+              }
+            }}
             disabled={disabled}
           >
             <SelectTrigger
-              className="h-7 text-xs w-[110px] gap-1 px-2 border-border/70 hover:border-border font-medium cursor-pointer"
+              className="h-7 text-xs w-[115px] gap-1 px-2 border-border/70 hover:border-border font-medium cursor-pointer"
               onMouseDown={preventBlur}
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="editor-ui-control">
               <SelectItem value="a4" className="text-xs">
-                A4 (210 × 297 мм)
+                A4 (210×297 мм)
               </SelectItem>
               <SelectItem value="a5" className="text-xs">
-                A5 (148 × 210 мм)
+                A5 (148×210 мм)
               </SelectItem>
               <SelectItem value="letter" className="text-xs">
-                Letter (216 × 279 мм)
+                Letter (216×279 мм)
+              </SelectItem>
+              <SelectItem value="custom" className="text-xs">
+                Произвольный...
               </SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
-
-        {/* Orientation Toggle */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Orientation Selector */}
+        <div className="flex items-center gap-1 shrink-0 ml-1">
           <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider hidden sm:inline">
             Ориентация:
           </span>
-          <div className="flex items-center rounded-md border border-border/70 p-0.5 bg-muted/30">
+          <div className="flex items-center rounded-md border border-border/70 p-0.5 bg-background">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -105,13 +118,14 @@ export function LayoutToolbar({
                   size="sm"
                   onClick={() => onChangeConfig({ orientation: "portrait" })}
                   disabled={disabled}
-                  className="h-6 px-2 text-xs gap-1 cursor-pointer font-medium"
+                  onMouseDown={preventBlur}
+                  className="h-6 px-2 text-xs gap-1 cursor-pointer"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Книжная</span>
+                  <FileText className="h-3 w-3" />
+                  <span className="hidden md:inline">Книжная</span>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Вертикальная страница (Портрет)</TooltipContent>
+              <TooltipContent>Книжная ориентация (вертикальная)</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -121,36 +135,41 @@ export function LayoutToolbar({
                   size="sm"
                   onClick={() => onChangeConfig({ orientation: "landscape" })}
                   disabled={disabled}
-                  className="h-6 px-2 text-xs gap-1 cursor-pointer font-medium"
+                  onMouseDown={preventBlur}
+                  className="h-6 px-2 text-xs gap-1 cursor-pointer"
                 >
-                  <FileText className="h-3.5 w-3.5 rotate-90" />
-                  <span>Альбомная</span>
+                  <FileText className="h-3 w-3 rotate-90" />
+                  <span className="hidden md:inline">Альбомная</span>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Горизонтальная страница (Альбом)</TooltipContent>
+              <TooltipContent>Альбомная ориентация (горизонтальная)</TooltipContent>
             </Tooltip>
           </div>
         </div>
 
-        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
-
         {/* Margins Selector */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 ml-1">
           <span className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider hidden sm:inline">
             Поля:
           </span>
           <Select
             value={config.margins}
-            onValueChange={(val) => onChangeConfig({ margins: val as PageMargins })}
+            onValueChange={(val) => {
+              if (val === "custom") {
+                setIsPageSetupOpen(true);
+              } else {
+                onChangeConfig({ margins: val as PageMargins });
+              }
+            }}
             disabled={disabled}
           >
             <SelectTrigger
-              className="h-7 text-xs w-[130px] gap-1 px-2 border-border/70 hover:border-border font-medium cursor-pointer"
+              className="h-7 text-xs w-[120px] gap-1 px-2 border-border/70 hover:border-border font-medium cursor-pointer"
               onMouseDown={preventBlur}
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="editor-ui-control">
               <SelectItem value="normal" className="text-xs">
                 Обычные (20 мм)
               </SelectItem>
@@ -160,42 +179,59 @@ export function LayoutToolbar({
               <SelectItem value="wide" className="text-xs">
                 Широкие (25.4 мм)
               </SelectItem>
+              <SelectItem value="custom" className="text-xs">
+                Произвольные...
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
+        {/* Page Setup Dialog Button */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsPageSetupOpen(true)}
+              disabled={disabled}
+              className="h-7 px-2 text-xs gap-1 border-border/70 hover:border-border cursor-pointer ml-1"
+            >
+              <Settings2 className="h-3.5 w-3.5 text-primary" />
+              <span className="hidden lg:inline">Настройка страницы...</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Точная настройка размеров листа и полей в мм</TooltipContent>
+        </Tooltip>
+
+        <Separator orientation="vertical" className="h-5 mx-1" />
 
         {/* Insert Page Break */}
-        <div className="flex items-center shrink-0">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onInsertPageBreak}
-                disabled={disabled}
-                onMouseDown={preventBlur}
-                className="h-7 text-xs gap-1.5 border-border/70 hover:border-primary/60 cursor-pointer font-medium"
-              >
-                <Scissors className="h-3.5 w-3.5 text-primary" />
-                <span>Разрыв страницы</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Вставить разрыв страницы (Ctrl+Enter / Cmd+Enter)</TooltipContent>
-          </Tooltip>
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onInsertPageBreak}
+              disabled={disabled || !onInsertPageBreak}
+              className="h-7 text-xs gap-1.5 px-2.5 border-dashed border-primary/40 hover:border-primary/80 text-primary font-medium cursor-pointer"
+            >
+              <Scissors className="h-3.5 w-3.5" />
+              <span>Разрыв страницы</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Вставить разрыв страницы (Ctrl + Enter)</TooltipContent>
+        </Tooltip>
 
-        <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
+        <Separator orientation="vertical" className="h-5 mx-1" />
 
         {/* Zoom Controls */}
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => handleZoomChange(-0.15)}
+                onClick={() => handleZoomChange(-0.1)}
                 disabled={disabled || config.zoom <= 0.6}
                 onMouseDown={preventBlur}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
@@ -206,7 +242,7 @@ export function LayoutToolbar({
             <TooltipContent>Уменьшить масштаб</TooltipContent>
           </Tooltip>
 
-          <span className="text-[11px] font-mono font-medium w-11 text-center text-foreground">
+          <span className="text-[11px] font-mono font-medium text-muted-foreground px-1 w-10 text-center">
             {Math.round(config.zoom * 100)}%
           </span>
 
@@ -215,7 +251,7 @@ export function LayoutToolbar({
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => handleZoomChange(0.15)}
+                onClick={() => handleZoomChange(0.1)}
                 disabled={disabled || config.zoom >= 1.5}
                 onMouseDown={preventBlur}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
@@ -255,10 +291,10 @@ export function LayoutToolbar({
               <span className="hidden md:inline">Инфо</span>
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-64 p-3 text-xs space-y-2">
+          <PopoverContent className="w-64 p-3 text-xs space-y-2 editor-ui-control">
             <div className="font-semibold text-foreground flex items-center justify-between border-b pb-1.5">
               <span>Параметры листа</span>
-              <span className="text-primary font-mono">{currentDim.label}</span>
+              <span className="text-primary font-mono text-[11px]">{currentDim.label}</span>
             </div>
             <div className="grid grid-cols-2 gap-1.5 text-muted-foreground">
               <span>Размеры:</span>
@@ -272,6 +308,14 @@ export function LayoutToolbar({
             </div>
           </PopoverContent>
         </Popover>
+
+        {/* Page Setup Dialog */}
+        <PageSetupDialog
+          open={isPageSetupOpen}
+          onOpenChange={setIsPageSetupOpen}
+          config={config}
+          onSave={(newCfg) => onChangeConfig(newCfg)}
+        />
       </div>
     </TooltipProvider>
   );

@@ -9,6 +9,8 @@ import {
   TableCell,
   WidthType,
   AlignmentType,
+  ImageRun,
+  ExternalHyperlink,
 } from "docx";
 import JSZip from "jszip";
 import mammoth from "mammoth";
@@ -20,11 +22,11 @@ export interface ConvertedDocument {
 
 /**
  * Universal Document Converter supporting:
- * - DOCX (Microsoft Word 2007+)
- * - ODT (OpenDocument Text - LibreOffice / OpenOffice)
+ * - DOCX (Microsoft Word 2007+) with full HTML style AST translation and embedded media
+ * - ODT (OpenDocument Text - LibreOffice / OpenOffice) with embedded pictures
  * - DOC (Legacy Microsoft Word Binary)
  * - TXT (Plain text)
- * - MD (Markdown)
+ * - MD (Markdown) and Markdown ZIP package with media
  */
 export class DocumentConverter {
   /**
@@ -71,7 +73,6 @@ export class DocumentConverter {
       }
 
       default: {
-        // Fallback: try plain text
         const text = await file.text();
         return { title, markdown: text };
       }
@@ -79,7 +80,238 @@ export class DocumentConverter {
   }
 
   /**
-   * Exports markdown and document metadata into a DOCX blob.
+   * Helper to parse CSS color string into 6-character hex without '#' for docx.
+   */
+  private static parseColorToHex(colorStr: string): string | undefined {
+    if (!colorStr) return undefined;
+    const clean = colorStr.trim().toLowerCase();
+    if (clean === "transparent" || clean === "inherit" || clean === "initial") {
+      return undefined;
+    }
+
+    // #fff or #ffffff
+    if (clean.startsWith("#")) {
+      const hex = clean.slice(1);
+      if (hex.length === 3) {
+        return hex
+          .split("")
+          .map((c) => c + c)
+          .join("");
+      }
+      if (hex.length === 6) return hex;
+      if (hex.length === 8) return hex.slice(0, 6);
+      return undefined;
+    }
+
+    // rgb(r, g, b) or rgba(r, g, b, a)
+    const rgbMatch = clean.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\s*\)$/);
+    if (rgbMatch) {
+      const r = parseInt(rgbMatch[1], 10);
+      const g = parseInt(rgbMatch[2], 10);
+      const b = parseInt(rgbMatch[3], 10);
+      const a = rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]) : 1;
+      if (a === 0) return undefined; // transparent
+      const toHex = (n: number) => Math.min(255, Math.max(0, n)).toString(16).padStart(2, "0");
+      return `${toHex(r)}${toHex(g)}${toHex(b)}`;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Helper to resolve an image URL (data URI, relative /api/files/, or http) into an ArrayBuffer
+   */
+  private static async resolveImageBuffer(
+    url: string
+  ): Promise<{ data: Uint8Array; width: number; height: number } | null> {
+    try {
+      if (!url) return null;
+
+      // 1. Data URI
+      if (url.startsWith("data:image/")) {
+        const commaIdx = url.indexOf(",");
+        if (commaIdx !== -1) {
+          const base64 = url.slice(commaIdx + 1);
+          const binaryStr = typeof window !== "undefined" ? window.atob(base64) : Buffer.from(base64, "base64").toString("binary");
+          const len = binaryStr.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          return { data: bytes, width: 480, height: 320 };
+        }
+      }
+
+      // 2. HTTP / relative fetch
+      const fetchUrl = url.startsWith("/") && typeof window !== "undefined" ? `${window.location.origin}${url}` : url;
+      const res = await fetch(fetchUrl);
+      if (!res.ok) return null;
+      const arrayBuffer = await res.arrayBuffer();
+      return { data: new Uint8Array(arrayBuffer), width: 480, height: 320 };
+    } catch (e) {
+      console.warn("[DocumentConverter] Failed to resolve image buffer:", e);
+      return null;
+    }
+  }
+
+  /**
+   * Parses line for block-level wrapper alignment (<div style="text-align: center">).
+   */
+  private static parseLineAlignment(line: string): {
+    alignment: (typeof AlignmentType)[keyof typeof AlignmentType];
+    innerContent: string;
+  } {
+    const alignMatch = line.match(/^<(?:div|p)\s+style="[^"]*text-align:\s*(left|center|right|justify)[^"]*"[^>]*>([\s\S]*)<\/(?:div|p)>$/i);
+    if (alignMatch) {
+      const alignStr = alignMatch[1].toLowerCase();
+      let alignment: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT;
+      if (alignStr === "center") alignment = AlignmentType.CENTER;
+      else if (alignStr === "right") alignment = AlignmentType.RIGHT;
+      else if (alignStr === "justify") alignment = AlignmentType.JUSTIFIED;
+      return { alignment, innerContent: alignMatch[2] };
+    }
+    return { alignment: AlignmentType.LEFT, innerContent: line };
+  }
+
+  /**
+   * Helper to parse HTML spans and inline styles into Docx TextRuns.
+   * Completely strips any remaining raw HTML tags so NOT A SINGLE <div or <span leaks into Word!
+   */
+  private static parseHtmlToDocxRuns(content: string): (TextRun | ExternalHyperlink)[] {
+    const runs: (TextRun | ExternalHyperlink)[] = [];
+    if (!content) return [new TextRun({ text: "" })];
+
+    // Regex matches styled span, bold, italic, underline, strike, code, link, or normal text
+    const tokenRegex = /(<span\s+style="([^"]*)">([\s\S]*?)<\/span>|<a\s+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>|\*\*(.*?)\*\*|<b>(.*?)<\/b>|<strong>(.*?)<\/strong>|\*(.*?)\*|<em>(.*?)<\/em>|<u>(.*?)<\/u>|~~(.*?)~~|<del>(.*?)<\/del>|`([^`]+)`|<br\s*\/?>|[^<*`~]+)/gi;
+
+    let match;
+    while ((match = tokenRegex.exec(content)) !== null) {
+      const fullMatch = match[0];
+
+      // 1. <br> break
+      if (fullMatch.toLowerCase().startsWith("<br")) {
+        runs.push(new TextRun({ break: 1 }));
+        continue;
+      }
+
+      // 2. <span style="...">
+      if (match[1] && match[2] !== undefined) {
+        const styleStr = match[2];
+        const innerText = match[3].replace(/<[^>]+>/g, ""); // strip any nested tags
+
+        let fontColor: string | undefined = undefined;
+        let fontHighlight: string | undefined = undefined;
+        let fontSizeHalfPt: number | undefined = undefined;
+        let fontFamily: string | undefined = undefined;
+        let isBold = false;
+        let isItalic = false;
+
+        styleStr.split(";").forEach((decl) => {
+          const idx = decl.indexOf(":");
+          if (idx !== -1) {
+            const prop = decl.slice(0, idx).trim().toLowerCase();
+            const val = decl.slice(idx + 1).trim();
+
+            if (prop === "color") {
+              fontColor = this.parseColorToHex(val);
+            } else if (prop === "background-color") {
+              const hex = this.parseColorToHex(val);
+              if (hex) fontHighlight = hex;
+            } else if (prop === "font-size") {
+              const num = parseFloat(val);
+              if (!isNaN(num)) {
+                // px to half-points (1px ~= 0.75pt, half-point = pt * 2)
+                fontSizeHalfPt = Math.round(num * 1.5);
+              }
+            } else if (prop === "font-family") {
+              fontFamily = val.split(",")[0].replace(/['"]/g, "").trim();
+            } else if (prop === "font-weight" && (val === "bold" || parseInt(val, 10) >= 600)) {
+              isBold = true;
+            } else if (prop === "font-style" && val === "italic") {
+              isItalic = true;
+            }
+          }
+        });
+
+        runs.push(
+          new TextRun({
+            text: innerText,
+            color: fontColor,
+            shading: fontHighlight ? { fill: fontHighlight } : undefined,
+            size: fontSizeHalfPt,
+            font: fontFamily,
+            bold: isBold,
+            italics: isItalic,
+          })
+        );
+        continue;
+      }
+
+      // 3. Link <a href="...">
+      if (match[4] && match[5] !== undefined) {
+        const href = match[4];
+        const linkText = match[5].replace(/<[^>]+>/g, "");
+        runs.push(
+          new ExternalHyperlink({
+            children: [
+              new TextRun({
+                text: linkText,
+                style: "Hyperlink",
+                color: "2563EB",
+                underline: {},
+              }),
+            ],
+            link: href,
+          })
+        );
+        continue;
+      }
+
+      // 4. Bold **text** / <b> / <strong>
+      const boldText = match[6] ?? match[7] ?? match[8];
+      if (boldText !== undefined) {
+        runs.push(new TextRun({ text: boldText.replace(/<[^>]+>/g, ""), bold: true }));
+        continue;
+      }
+
+      // 5. Italic *text* / <em>
+      const italicText = match[9] ?? match[10];
+      if (italicText !== undefined) {
+        runs.push(new TextRun({ text: italicText.replace(/<[^>]+>/g, ""), italics: true }));
+        continue;
+      }
+
+      // 6. Underline <u>
+      if (match[11] !== undefined) {
+        runs.push(new TextRun({ text: match[11].replace(/<[^>]+>/g, ""), underline: {} }));
+        continue;
+      }
+
+      // 7. Strikethrough ~~text~~ / <del>
+      const strikeText = match[12] ?? match[13];
+      if (strikeText !== undefined) {
+        runs.push(new TextRun({ text: strikeText.replace(/<[^>]+>/g, ""), strike: true }));
+        continue;
+      }
+
+      // 8. Code `code`
+      if (match[14] !== undefined) {
+        runs.push(new TextRun({ text: match[14].replace(/<[^>]+>/g, ""), font: "Courier New" }));
+        continue;
+      }
+
+      // 9. Plain text fallback: strip any lingering tags
+      const cleanText = fullMatch.replace(/<[^>]+>/g, "");
+      if (cleanText) {
+        runs.push(new TextRun({ text: cleanText }));
+      }
+    }
+
+    return runs.length > 0 ? runs : [new TextRun({ text: content.replace(/<[^>]+>/g, "") })];
+  }
+
+  /**
+   * Exports markdown and document content into a DOCX blob with full HTML style translation and embedded media.
    */
   static async exportDocx(title: string, markdown: string): Promise<Blob> {
     const paragraphs: (Paragraph | DocxTable)[] = [];
@@ -103,24 +335,26 @@ export class DocumentConverter {
       // Table parsing
       if (line.startsWith("|") && line.endsWith("|")) {
         inTable = true;
-        // Skip separator line |---|---|
         if (!line.includes("---")) {
           const cells = line
             .slice(1, -1)
             .split("|")
-            .map((c) => c.trim());
+            .map((c) => c.trim().replace(/<[^>]+>/g, ""));
           tableRows.push(cells);
         }
         continue;
       } else if (inTable) {
-        // End of table, render it
         if (tableRows.length > 0) {
-          const docxTable = this.createDocxTable(tableRows);
-          paragraphs.push(docxTable);
+          paragraphs.push(this.createDocxTable(tableRows));
           paragraphs.push(new Paragraph({ spacing: { after: 150 } }));
         }
         inTable = false;
         tableRows = [];
+      }
+
+      // Ignore table comment metadata
+      if (line.startsWith("<!-- table") && line.endsWith("-->")) {
+        continue;
       }
 
       if (!line) {
@@ -133,11 +367,93 @@ export class DocumentConverter {
         continue;
       }
 
+      // Image Block: ![caption|width=...|align=...](url) or ![caption](url)
+      const imageMatch = line.match(/^!\[(.*?)\]\((.*?)\)$/);
+      if (imageMatch) {
+        const rawCaption = imageMatch[1] || "";
+        const imgUrl = imageMatch[2] || "";
+        let caption = rawCaption;
+        let align: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.CENTER;
+        let widthPercent = 100;
+
+        if (rawCaption.includes("|")) {
+          const parts = rawCaption.split("|");
+          caption = parts[0].trim();
+          for (let pIdx = 1; pIdx < parts.length; pIdx++) {
+            const p = parts[pIdx].trim();
+            if (p.startsWith("align=")) {
+              const a = p.replace("align=", "").trim();
+              if (a === "left") align = AlignmentType.LEFT;
+              else if (a === "right") align = AlignmentType.RIGHT;
+            } else if (p.startsWith("width=")) {
+              const w = parseInt(p.replace("width=", "").replace("%", "").trim(), 10);
+              if (!isNaN(w) && w > 0) widthPercent = w;
+            }
+          }
+        }
+
+        const resolved = await this.resolveImageBuffer(imgUrl);
+        if (resolved) {
+          const targetW = Math.round((550 * widthPercent) / 100);
+          const targetH = Math.round((360 * widthPercent) / 100);
+
+          paragraphs.push(
+            new Paragraph({
+              alignment: align,
+              children: [
+                new ImageRun({
+                  data: resolved.data,
+                  transformation: {
+                    width: targetW,
+                    height: targetH,
+                  },
+                  type: "png",
+                }),
+              ],
+              spacing: { before: 140, after: 80 },
+            })
+          );
+
+          if (caption && caption !== "Изображение") {
+            paragraphs.push(
+              new Paragraph({
+                alignment: align,
+                children: [
+                  new TextRun({
+                    text: caption,
+                    italics: true,
+                    size: 18,
+                    color: "64748B",
+                  }),
+                ],
+                spacing: { after: 120 },
+              })
+            );
+          }
+        } else {
+          // Fallback caption if image fetch failed
+          paragraphs.push(
+            new Paragraph({
+              alignment: align,
+              children: [
+                new TextRun({
+                  text: `[Изображение: ${caption || imgUrl}]`,
+                  color: "2563EB",
+                  italics: true,
+                }),
+              ],
+              spacing: { before: 100, after: 100 },
+            })
+          );
+        }
+        continue;
+      }
+
       // Heading 1
       if (line.startsWith("# ")) {
         paragraphs.push(
           new Paragraph({
-            text: line.slice(2),
+            text: line.slice(2).replace(/<[^>]+>/g, ""),
             heading: HeadingLevel.HEADING_1,
             spacing: { before: 240, after: 120 },
           })
@@ -147,7 +463,7 @@ export class DocumentConverter {
       else if (line.startsWith("## ")) {
         paragraphs.push(
           new Paragraph({
-            text: line.slice(3),
+            text: line.slice(3).replace(/<[^>]+>/g, ""),
             heading: HeadingLevel.HEADING_2,
             spacing: { before: 200, after: 100 },
           })
@@ -157,17 +473,18 @@ export class DocumentConverter {
       else if (line.startsWith("### ")) {
         paragraphs.push(
           new Paragraph({
-            text: line.slice(4),
+            text: line.slice(4).replace(/<[^>]+>/g, ""),
             heading: HeadingLevel.HEADING_3,
             spacing: { before: 160, after: 80 },
           })
         );
       }
       // Bullet list
-      else if (line.startsWith("- ") || line.startsWith("* ")) {
+      else if (line.startsWith("- ") || line.startsWith("* ") || line.startsWith("• ")) {
+        const itemText = line.replace(/^[-*•]\s+/, "");
         paragraphs.push(
           new Paragraph({
-            children: this.parseMarkdownSpansToTextRuns(line.slice(2)),
+            children: this.parseHtmlToDocxRuns(itemText),
             bullet: { level: 0 },
             spacing: { after: 80 },
           })
@@ -178,7 +495,7 @@ export class DocumentConverter {
         const text = line.replace(/^\d+\.\s/, "");
         paragraphs.push(
           new Paragraph({
-            children: this.parseMarkdownSpansToTextRuns(text),
+            children: this.parseHtmlToDocxRuns(text),
             spacing: { after: 80 },
           })
         );
@@ -187,17 +504,21 @@ export class DocumentConverter {
       else if (line.startsWith("> ")) {
         paragraphs.push(
           new Paragraph({
-            children: this.parseMarkdownSpansToTextRuns(line.slice(2)),
+            children: this.parseHtmlToDocxRuns(line.slice(2)),
             indent: { left: 720 },
             spacing: { before: 100, after: 100 },
           })
         );
       }
-      // Standard paragraph
+      // Standard paragraph (with full HTML style & alignment AST parsing)
       else {
+        const { alignment, innerContent } = this.parseLineAlignment(line);
+        const runs = this.parseHtmlToDocxRuns(innerContent);
+
         paragraphs.push(
           new Paragraph({
-            children: this.parseMarkdownSpansToTextRuns(line),
+            alignment,
+            children: runs,
             spacing: { after: 120 },
           })
         );
@@ -221,7 +542,7 @@ export class DocumentConverter {
   }
 
   /**
-   * Exports markdown and document metadata into an OpenDocument Text (.odt) file.
+   * Exports markdown and document metadata into an OpenDocument Text (.odt) file with embedded media.
    */
   static async exportOdt(title: string, markdown: string): Promise<Blob> {
     const zip = new JSZip();
@@ -229,15 +550,11 @@ export class DocumentConverter {
     // 1. mimetype (must be uncompressed at offset 0 per ODF spec)
     zip.file("mimetype", "application/vnd.oasis.opendocument.text", { compression: "STORE" });
 
-    // 2. META-INF/manifest.xml
-    const manifestXml = `<?xml version="1.0" encoding="UTF-8"?>
-<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">
-  <manifest:file-entry manifest:full-path="/" manifest:version="1.2" manifest:media-type="application/vnd.oasis.opendocument.text"/>
+    // 2. manifest entries
+    let manifestEntries = `  <manifest:file-entry manifest:full-path="/" manifest:version="1.2" manifest:media-type="application/vnd.oasis.opendocument.text"/>
   <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
   <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
-  <manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>
-</manifest:manifest>`;
-    zip.file("META-INF/manifest.xml", manifestXml);
+  <manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>`;
 
     // 3. meta.xml
     const metaXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -262,9 +579,10 @@ export class DocumentConverter {
 </office:document-styles>`;
     zip.file("styles.xml", stylesXml);
 
-    // 5. content.xml
+    // 5. content.xml & media packing
     let bodyContentXml = `<text:h text:outline-level="1">${this.escapeXml(title)}</text:h>`;
     const lines = markdown.split("\n");
+    let imageCounter = 1;
 
     for (const rawLine of lines) {
       const line = rawLine.trim();
@@ -272,23 +590,49 @@ export class DocumentConverter {
         bodyContentXml += `<text:p/>`;
       } else if (line === "<!-- pagebreak -->" || line === "\\pagebreak" || line === "---pagebreak---") {
         bodyContentXml += `<text:p style:name="PageBreak"/>`;
+      } else if (line.startsWith("<!-- table") && line.endsWith("-->")) {
+        continue;
       } else if (line.startsWith("# ")) {
-        bodyContentXml += `<text:h text:outline-level="1">${this.escapeXml(line.slice(2))}</text:h>`;
+        bodyContentXml += `<text:h text:outline-level="1">${this.escapeXml(line.slice(2).replace(/<[^>]+>/g, ""))}</text:h>`;
       } else if (line.startsWith("## ")) {
-        bodyContentXml += `<text:h text:outline-level="2">${this.escapeXml(line.slice(3))}</text:h>`;
+        bodyContentXml += `<text:h text:outline-level="2">${this.escapeXml(line.slice(3).replace(/<[^>]+>/g, ""))}</text:h>`;
       } else if (line.startsWith("### ")) {
-        bodyContentXml += `<text:h text:outline-level="3">${this.escapeXml(line.slice(4))}</text:h>`;
-      } else if (line.startsWith("- ") || line.startsWith("* ")) {
-        bodyContentXml += `<text:p style:name="List_Item">• ${this.escapeXml(line.slice(2))}</text:p>`;
+        bodyContentXml += `<text:h text:outline-level="3">${this.escapeXml(line.slice(4).replace(/<[^>]+>/g, ""))}</text:h>`;
+      } else if (line.startsWith("- ") || line.startsWith("* ") || line.startsWith("• ")) {
+        const itemText = line.replace(/^[-*•]\s+/, "").replace(/<[^>]+>/g, "");
+        bodyContentXml += `<text:p style:name="List_Item">• ${this.escapeXml(itemText)}</text:p>`;
       } else if (line.startsWith("> ")) {
-        bodyContentXml += `<text:p style:name="Quote">“${this.escapeXml(line.slice(2))}”</text:p>`;
+        bodyContentXml += `<text:p style:name="Quote">“${this.escapeXml(line.slice(2).replace(/<[^>]+>/g, ""))}”</text:p>`;
       } else {
-        bodyContentXml += `<text:p>${this.escapeXml(line)}</text:p>`;
+        // Image check
+        const imgM = line.match(/^!\[(.*?)\]\((.*?)\)$/);
+        if (imgM) {
+          const imgUrl = imgM[2];
+          const resolved = await this.resolveImageBuffer(imgUrl);
+          if (resolved) {
+            const fileName = `image_${imageCounter++}.png`;
+            zip.file(`Pictures/${fileName}`, resolved.data);
+            manifestEntries += `\n  <manifest:file-entry manifest:full-path="Pictures/${fileName}" manifest:media-type="image/png"/>`;
+            bodyContentXml += `<text:p><draw:frame draw:name="img_${imageCounter}" svg:width="15cm" svg:height="10cm"><draw:image xlink:href="Pictures/${fileName}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame></text:p>`;
+            continue;
+          }
+        }
+
+        // Clean any HTML tags from paragraph
+        const cleanText = line.replace(/<[^>]+>/g, "");
+        bodyContentXml += `<text:p>${this.escapeXml(cleanText)}</text:p>`;
       }
     }
 
+    // Write manifest
+    const manifestXml = `<?xml version="1.0" encoding="UTF-8"?>
+<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">
+${manifestEntries}
+</manifest:manifest>`;
+    zip.file("META-INF/manifest.xml", manifestXml);
+
     const contentXml = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" office:version="1.2">
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.2">
   <office:body>
     <office:text>
       ${bodyContentXml}
@@ -301,54 +645,63 @@ export class DocumentConverter {
   }
 
   /**
-   * Parses an ODT ZIP file and extracts its text and structure into Markdown.
+   * Bundles Markdown and all embedded media files into a portable ZIP package.
    */
-  private static async parseOdt(buffer: ArrayBuffer): Promise<string> {
-    try {
-      const zip = await JSZip.loadAsync(buffer);
-      const contentFile = zip.file("content.xml");
-      if (!contentFile) {
-        throw new Error("content.xml not found in ODT package");
-      }
+  static async exportMarkdownZip(title: string, markdown: string): Promise<Blob> {
+    const zip = new JSZip();
+    let updatedMd = markdown;
+    let imgIndex = 1;
 
-      const contentXml = await contentFile.async("text");
-      if (contentXml.length > 25 * 1024 * 1024) {
-        throw new Error("Размер распакованного документа ODT превышает лимит безопасности");
-      }
-      let markdown = "";
+    const imgRegex = /!\[(.*?)\]\((.*?)\)/g;
+    let match;
+    const matches: { full: string; caption: string; url: string }[] = [];
 
-      // Simple, robust XML regex parser for OpenDocument text nodes
-      const elementRegex = /<text:(h|p)[^>]*>([\s\S]*?)<\/text:(h|p)>/g;
-      let match;
-      while ((match = elementRegex.exec(contentXml)) !== null) {
-        const tag = match[1];
-        const innerXml = match[2];
-        const plainText = innerXml.replace(/<[^>]+>/g, "").trim();
-
-        if (tag === "h") {
-          markdown += `## ${plainText}\n\n`;
-        } else if (tag === "p") {
-          if (plainText) {
-            markdown += `${plainText}\n\n`;
-          }
-        }
-      }
-
-      return markdown.trim() || "Документ ODT загружен.";
-    } catch (err) {
-      console.warn("Failed to parse ODT structure:", err);
-      return "Ошибка чтения ODT файла.";
+    while ((match = imgRegex.exec(markdown)) !== null) {
+      matches.push({ full: match[0], caption: match[1], url: match[2] });
     }
+
+    for (const item of matches) {
+      const resolved = await this.resolveImageBuffer(item.url);
+      if (resolved) {
+        const ext = "png";
+        const filename = `image_${imgIndex++}.${ext}`;
+        zip.file(`media/${filename}`, resolved.data);
+        const replacement = `![${item.caption}](media/${filename})`;
+        updatedMd = updatedMd.replace(item.full, replacement);
+      }
+    }
+
+    zip.file(`${title || "document"}.md`, updatedMd);
+    return await zip.generateAsync({ type: "blob" });
   }
 
   /**
-   * Parses legacy binary Microsoft Word (.doc) files.
-   * Extracts UTF-8 and ANSI text streams and paragraphs.
+   * Helper to parse legacy ODF XML.
    */
-  private static async parseLegacyDoc(buffer: ArrayBuffer): Promise<string> {
-    const bytes = new Uint8Array(buffer);
+  private static async parseOdt(arrayBuffer: ArrayBuffer): Promise<string> {
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const contentXmlFile = zip.file("content.xml");
+    if (!contentXmlFile) throw new Error("Невалидный ODT файл: отсутствует content.xml");
+
+    const contentXml = await contentXmlFile.async("string");
+    const paragraphs: string[] = [];
+    const pRegex = /<text:(?:p|h)[^>]*>([\s\S]*?)<\/text:(?:p|h)>/gi;
+    let match;
+
+    while ((match = pRegex.exec(contentXml)) !== null) {
+      const rawText = match[1].replace(/<[^>]+>/g, "").trim();
+      if (rawText) paragraphs.push(rawText);
+    }
+
+    return paragraphs.join("\n\n") || "Импортированный текст ODT документа.";
+  }
+
+  /**
+   * Fast binary text extractor for Word 97-2003 .doc format.
+   */
+  private static async parseLegacyDoc(arrayBuffer: ArrayBuffer): Promise<string> {
+    const bytes = new Uint8Array(arrayBuffer);
     try {
-      // 1. High-speed C++ engine UTF-16LE decode (Word 97-2003 text stream)
       const utf16Decoder = new TextDecoder("utf-16le", { fatal: false });
       const decodedUtf16 = utf16Decoder.decode(bytes);
       const chunks = decodedUtf16
@@ -363,12 +716,9 @@ export class DocumentConverter {
             !s.includes("Normal.dot")
         );
 
-      if (chunks.length > 0) {
-        return chunks.join("\n\n");
-      }
+      if (chunks.length > 0) return chunks.join("\n\n");
     } catch {}
 
-    // Fallback: UTF-8 / ASCII decode
     const asciiDecoder = new TextDecoder("utf-8", { fatal: false });
     const asciiText = asciiDecoder.decode(bytes);
     const asciiChunks = asciiText
@@ -380,32 +730,7 @@ export class DocumentConverter {
   }
 
   /**
-   * Helper to parse markdown spans (bold, italic, code) into docx TextRuns.
-   */
-  private static parseMarkdownSpansToTextRuns(text: string): TextRun[] {
-    const runs: TextRun[] = [];
-    // Regular expression matching bold, italic, inline code
-    const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`|[^*`]+)/g;
-    let match;
-
-    while ((match = regex.exec(text)) !== null) {
-      const part = match[0];
-      if (part.startsWith("**") && part.endsWith("**")) {
-        runs.push(new TextRun({ text: part.slice(2, -2), bold: true }));
-      } else if (part.startsWith("*") && part.endsWith("*")) {
-        runs.push(new TextRun({ text: part.slice(1, -1), italics: true }));
-      } else if (part.startsWith("`") && part.endsWith("`")) {
-        runs.push(new TextRun({ text: part.slice(1, -1), font: "Courier New" }));
-      } else {
-        runs.push(new TextRun({ text: part }));
-      }
-    }
-
-    return runs.length > 0 ? runs : [new TextRun({ text })];
-  }
-
-  /**
-   * Helper to create a DocxTable from 2D array.
+   * Helper to create a DocxTable from 2D array with borders and padding.
    */
   private static createDocxTable(rowsData: string[][]): DocxTable {
     const tableRows = rowsData.map((rowCells, rowIndex) => {
@@ -451,7 +776,6 @@ export class DocumentConverter {
       .replace(/<[^>]+>/g, "")
       .replace(/&nbsp;/g, " ")
       .replace(/&amp;/g, "&")
-      // Keep HTML entities as escaped text to prevent tag injection
       .replace(/\n{3,}/g, "\n\n")
       .trim();
   }

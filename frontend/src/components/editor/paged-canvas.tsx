@@ -5,7 +5,11 @@ import type { BlockNode, BlockType } from "@/lib/crdt/types";
 import { formatID } from "@/lib/crdt/id";
 import { BlockEditorItem } from "./block-editor-item";
 import type { PageLayoutConfig } from "@/lib/types/page-layout";
-import { PAGE_DIMENSIONS, MARGIN_VALUES, DEFAULT_PAGE_LAYOUT } from "@/lib/types/page-layout";
+import {
+  getPageDimensions,
+  getPageMargins,
+  pxToMm,
+} from "@/lib/types/page-layout";
 import { Trash2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -56,9 +60,8 @@ export function PagedCanvas({
 }: PagedCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const formatDims = PAGE_DIMENSIONS[pageConfig.format] ?? PAGE_DIMENSIONS[DEFAULT_PAGE_LAYOUT.format];
-  const dim = formatDims[pageConfig.orientation] ?? formatDims[DEFAULT_PAGE_LAYOUT.orientation];
-  const margins = MARGIN_VALUES[pageConfig.margins] ?? MARGIN_VALUES[DEFAULT_PAGE_LAYOUT.margins];
+  const dim = getPageDimensions(pageConfig);
+  const margins = getPageMargins(pageConfig);
   const availableHeightPx = dim.heightPx - margins.top - margins.bottom;
 
   /**
@@ -72,12 +75,17 @@ export function PagedCanvas({
     let currentHeight = 0;
     let pendingBreakId: string | undefined = undefined;
 
-    // Helper to estimate height of a block
+    const numLineHeight = typeof pageConfig.lineHeight === "number"
+      ? pageConfig.lineHeight
+      : parseFloat(String(pageConfig.lineHeight || "1.5")) || 1.5;
+    const pSpacing = pageConfig.paragraphSpacing ?? 8;
+
+    // Helper to estimate height of a block factoring in custom lineHeight & paragraphSpacing
     const estimateBlockHeight = (block: BlockNode): number => {
       if (block.blockType === "page-break") return 0;
-      if (block.blockType === "table") return 140;
-      if (block.blockType === "image") return 260;
-      if (block.blockType === "code-block") return 90;
+      if (block.blockType === "table") return 160;
+      if (block.blockType === "image") return 280;
+      if (block.blockType === "code-block") return 100;
       if (block.blockType === "heading1") return 55;
       if (block.blockType === "heading2") return 45;
       if (block.blockType === "heading3") return 38;
@@ -85,7 +93,7 @@ export function PagedCanvas({
 
       const text = blockTexts[formatID(block.id)] || "";
       const lineCount = Math.max(1, Math.ceil(text.length / 75));
-      return lineCount * 28 + 12; // ~28px line height + 12px margin
+      return Math.round(lineCount * (18 * numLineHeight) + pSpacing + 8);
     };
 
     for (let i = 0; i < blocks.length; i++) {
@@ -130,7 +138,7 @@ export function PagedCanvas({
     });
 
     return result;
-  }, [blocks, blockTexts, availableHeightPx]);
+  }, [blocks, blockTexts, availableHeightPx, pageConfig.lineHeight, pageConfig.paragraphSpacing]);
 
   /**
    * Handle Smart Click (Click and Type) on the page sheet
@@ -167,6 +175,7 @@ export function PagedCanvas({
   return (
     <div
       ref={containerRef}
+      data-print-style={`${pxToMm(dim.widthPx)}x${pxToMm(dim.heightPx)}`}
       className="flex-1 overflow-y-auto bg-muted/30 p-4 sm:p-8 flex flex-col items-center gap-8 w-full select-text"
       style={{
         fontFamily: documentFont,
@@ -223,6 +232,8 @@ export function PagedCanvas({
                   paddingLeft: `${margins.left}px`,
                   paddingRight: `${margins.right}px`,
                   boxSizing: "border-box",
+                  lineHeight: pageConfig.lineHeight || 1.5,
+                  letterSpacing: pageConfig.letterSpacing || "normal",
                 }}
               >
                 {/* Content Blocks for this Page */}
