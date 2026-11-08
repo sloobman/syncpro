@@ -463,10 +463,24 @@ export function BlockEditorItem({
     }
   }, [text]);
 
+  const handleSafeFocus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
+        return;
+      }
+    }
+    onFocus();
+  }, [onFocus]);
+
   // Focus contentEditable when activated
   useEffect(() => {
     if (isActive && contentRef.current && document.activeElement !== contentRef.current) {
-      contentRef.current.focus();
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
+        return;
+      }
+      contentRef.current.focus({ preventScroll: true });
     }
   }, [isActive]);
 
@@ -484,7 +498,7 @@ export function BlockEditorItem({
     (command: string, value: string | undefined = undefined) => {
       if (!canEdit) return;
       if (contentRef.current) {
-        contentRef.current.focus();
+        contentRef.current.focus({ preventScroll: true });
       }
       try { document.execCommand("styleWithCSS", false, "true"); } catch {} 
       document.execCommand(command, false, value);
@@ -798,7 +812,7 @@ export function BlockEditorItem({
     return (
       <div
         className="group relative my-6 flex items-center select-none"
-        onFocus={onFocus}
+        onFocus={handleSafeFocus}
         onClick={(e) => {
           e.stopPropagation();
           onFocus?.();
@@ -835,7 +849,7 @@ export function BlockEditorItem({
     return (
       <div
         className="group relative my-4 flex items-center"
-        onFocus={onFocus}
+        onFocus={handleSafeFocus}
         onClick={(e) => {
           e.stopPropagation();
           onFocus?.();
@@ -906,7 +920,7 @@ export function BlockEditorItem({
     return (
       <div
         className="group relative my-4 space-y-2"
-        onFocus={onFocus}
+        onFocus={handleSafeFocus}
         onClick={(e) => {
           e.stopPropagation();
           onFocus?.();
@@ -1147,7 +1161,7 @@ export function BlockEditorItem({
     return (
       <div
         className="group relative my-4"
-        onFocus={onFocus}
+        onFocus={handleSafeFocus}
         onClick={(e) => {
           e.stopPropagation();
           onFocus?.();
@@ -1436,7 +1450,7 @@ export function BlockEditorItem({
     return (
       <div
         className="group relative my-3"
-        onFocus={onFocus}
+        onFocus={handleSafeFocus}
         onClick={(e) => {
           e.stopPropagation();
           onFocus?.();
@@ -1490,7 +1504,7 @@ export function BlockEditorItem({
     };
 
     return (
-      <div className="group relative flex items-start gap-2.5 my-1.5" onFocus={onFocus}>
+      <div className="group relative flex items-start gap-2.5 my-0" onFocus={handleSafeFocus}>
         <div className="absolute -left-7 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
@@ -1515,12 +1529,12 @@ export function BlockEditorItem({
               suppressContentEditableWarning
               onInput={handleContentInput}
               onKeyDown={handleEditableKeyDown}
-              className={`w-full max-w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base py-0.5 leading-relaxed min-h-[24px] break-words [overflow-wrap:anywhere] [word-break:break-word] ${
+              className={`w-full max-w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base py-0.5 leading-[inherit] min-h-[24px] break-words [overflow-wrap:anywhere] [word-break:break-word] ${
                 done ? "line-through text-muted-foreground" : "text-foreground font-normal"
               }`}
             />
           ) : (
-            <p className={`text-sm sm:text-base leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word] ${done ? "line-through text-muted-foreground" : "text-foreground"}`}>
+            <p className={`text-sm sm:text-base leading-[inherit] break-words [overflow-wrap:anywhere] [word-break:break-word] ${done ? "line-through text-muted-foreground" : "text-foreground"}`}>
               <RichTextRenderer content={task} />
             </p>
           )}
@@ -1544,7 +1558,7 @@ export function BlockEditorItem({
   // 6. RENDER QUOTE BLOCK
   if (block.blockType === "quote") {
     return (
-      <div className="group relative my-2" onFocus={onFocus}>
+      <div className="group relative my-0" onFocus={handleSafeFocus}>
         <div className="absolute -left-7 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
@@ -1561,10 +1575,10 @@ export function BlockEditorItem({
                   suppressContentEditableWarning
                   onInput={handleContentInput}
                   onKeyDown={handleEditableKeyDown}
-                  className="w-full max-w-full bg-transparent border-0 focus:outline-none italic text-sm sm:text-base text-foreground leading-relaxed font-serif min-h-[30px] break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                  className="w-full max-w-full bg-transparent border-0 focus:outline-none italic text-sm sm:text-base text-foreground leading-[inherit] font-serif min-h-[30px] break-words [overflow-wrap:anywhere] [word-break:break-word]"
                 />
               ) : (
-                <p className="italic text-sm sm:text-base text-foreground font-serif leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word]">
+                <p className="italic text-sm sm:text-base text-foreground font-serif leading-[inherit] break-words [overflow-wrap:anywhere] [word-break:break-word]">
                   <RichTextRenderer content={text} />
                 </p>
               )}
@@ -1590,7 +1604,7 @@ export function BlockEditorItem({
     const isNumbered = block.blockType === "numbered-list";
 
     return (
-      <div className="group relative flex items-start gap-2.5 my-1" onFocus={onFocus}>
+      <div className="group relative flex items-start gap-2.5 my-0" onFocus={handleSafeFocus}>
         <div className="absolute -left-7 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
@@ -1612,10 +1626,10 @@ export function BlockEditorItem({
               suppressContentEditableWarning
               onInput={handleContentInput}
               onKeyDown={handleEditableKeyDown}
-              className="w-full max-w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base text-foreground py-0.5 leading-relaxed font-normal min-h-[24px] break-words [overflow-wrap:anywhere] [word-break:break-word]"
+              className="w-full max-w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base text-foreground py-0.5 leading-[inherit] font-normal min-h-[24px] break-words [overflow-wrap:anywhere] [word-break:break-word]"
             />
           ) : (
-            <p className="text-sm sm:text-base leading-relaxed text-foreground break-words [overflow-wrap:anywhere] [word-break:break-word]">
+            <p className="text-sm sm:text-base leading-[inherit] text-foreground break-words [overflow-wrap:anywhere] [word-break:break-word]">
               <RichTextRenderer content={text} />
             </p>
           )}
@@ -1646,10 +1660,10 @@ export function BlockEditorItem({
     ? "text-xl sm:text-2xl font-bold tracking-tight text-foreground break-words [overflow-wrap:anywhere] [word-break:break-word]"
     : isH3
     ? "text-lg sm:text-xl font-semibold tracking-tight text-foreground break-words [overflow-wrap:anywhere] [word-break:break-word]"
-    : "text-sm sm:text-base text-foreground/90 font-normal leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word]";
+    : "text-sm sm:text-base text-foreground/90 font-normal leading-[inherit] break-words [overflow-wrap:anywhere] [word-break:break-word]";
 
   return (
-    <div className="group relative flex items-start gap-2.5 my-1.5" onFocus={onFocus}>
+    <div className="group relative flex items-start gap-2.5 my-0" onFocus={handleSafeFocus}>
       {/* Block gutter controls */}
       <div className="absolute -left-7 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
         {blockTypeDropdown}
