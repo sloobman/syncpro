@@ -43,6 +43,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BUILT_IN_FONTS, type FontItem, normalizeFontFamily, matchFontFamily, FontManager } from "@/lib/fonts/font-manager";
 import { CustomFontDialog } from "@/components/editor/custom-font-dialog";
+import { LayoutToolbar } from "./layout-toolbar";
+import type { PageLayoutConfig } from "@/lib/types/page-layout";
 
 export interface EditorToolbarProps {
   onAction?: (action: string, value?: string) => void;
@@ -55,6 +57,9 @@ export interface EditorToolbarProps {
   onColorChange?: (color: string) => void;
   onHighlightChange?: (color: string) => void;
   onAlignChange?: (align: "left" | "center" | "right" | "justify") => void;
+  pageConfig?: PageLayoutConfig;
+  onChangePageConfig?: (updates: Partial<PageLayoutConfig>) => void;
+  onInsertPageBreak?: () => void;
 }
 
 const TEXT_COLORS = [
@@ -99,11 +104,31 @@ export function EditorToolbar({
   onColorChange,
   onHighlightChange,
   onAlignChange,
+  pageConfig,
+  onChangePageConfig,
+  onInsertPageBreak,
 }: EditorToolbarProps) {
   const [customFonts, setCustomFonts] = useState<FontItem[]>([]);
   const [isFontDialogOpen, setIsFontDialogOpen] = useState(false);
   const [selectedColor, setSelectedColor] = useState<string>("inherit");
     const [selectedHighlight, setSelectedHighlight] = useState<string>("transparent");
+  const [activeTab, setActiveTab] = useState<"home" | "layout">("home");
+
+  const allSizes = useMemo(() => {
+    const list = [...FONT_SIZES];
+    if (currentSize && !list.includes(currentSize)) {
+      list.push(currentSize);
+    }
+    return list;
+  }, [currentSize]);
+
+  const matchedSize = useMemo(() => {
+    if (!currentSize) return "16px";
+    if (FONT_SIZES.includes(currentSize)) return currentSize;
+    const num = parseInt(currentSize, 10);
+    const found = FONT_SIZES.find((s) => parseInt(s, 10) === num);
+    return found || currentSize;
+  }, [currentSize]);
 
   useEffect(() => {
     let isMounted = true;
@@ -243,9 +268,64 @@ export function EditorToolbar({
 
 
 
+  if (activeTab === "layout" && pageConfig && onChangePageConfig) {
+    return (
+      <div className="flex items-center border-b border-border bg-card/85 backdrop-blur-md">
+        <div className="flex items-center gap-1 shrink-0 px-2 border-r border-border h-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setActiveTab("home")}
+            className="h-6 px-2 text-xs font-medium cursor-pointer"
+          >
+            Главная
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setActiveTab("layout")}
+            className="h-6 px-2 text-xs font-semibold cursor-pointer"
+          >
+            Макет
+          </Button>
+        </div>
+        <div className="flex-1 overflow-x-auto no-scrollbar">
+          <LayoutToolbar
+            config={pageConfig}
+            onChangeConfig={onChangePageConfig}
+            onInsertPageBreak={onInsertPageBreak}
+            disabled={disabled}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="h-10 border-b border-border bg-card/85 backdrop-blur-md px-3 flex items-center gap-1 overflow-x-auto no-scrollbar select-none z-10">
+                {/* Navigation Tabs */}
+        {pageConfig && (
+          <div className="flex items-center gap-1 shrink-0 pr-1.5 mr-1 border-r border-border">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setActiveTab("home")}
+              className="h-6 px-2 text-xs font-semibold cursor-pointer"
+            >
+              Главная
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setActiveTab("layout")}
+              className="h-6 px-2 text-xs font-medium cursor-pointer"
+            >
+              Макет
+            </Button>
+          </div>
+        )}
+
         {/* Undo / Redo */}
         <div className="flex items-center shrink-0">
           <Tooltip>
@@ -355,7 +435,7 @@ export function EditorToolbar({
 
         {/* Font Size Selector */}
         <div className="flex items-center shrink-0">
-          <Select value={currentSize} onValueChange={handleSizeSelect}>
+          <Select value={matchedSize} onValueChange={handleSizeSelect}>
             <SelectTrigger
               className="h-7 text-xs w-[68px] px-1.5 border-border/70 hover:border-border font-medium cursor-pointer"
               onMouseDown={preventBlur}
@@ -363,7 +443,7 @@ export function EditorToolbar({
               <SelectValue placeholder="Кегль" />
             </SelectTrigger>
             <SelectContent>
-              {FONT_SIZES.map((size) => (
+              {allSizes.map((size) => (
                 <SelectItem key={size} value={size} className="text-xs">
                   {size}
                 </SelectItem>

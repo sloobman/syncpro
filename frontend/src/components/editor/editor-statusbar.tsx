@@ -7,11 +7,13 @@ export function EditorStatusbar({
   charCount = 14380,
   activeUsers = 3,
   branch = "main",
+  pageInfo,
 }: {
   wordCount?: number;
   charCount?: number;
   activeUsers?: number;
   branch?: string;
+  pageInfo?: string;
 }) {
   return (
     <footer className="h-6 border-t border-border bg-muted/40 px-3 flex items-center justify-between text-[11px] text-muted-foreground select-none z-10">
@@ -19,6 +21,12 @@ export function EditorStatusbar({
         <span>Слова: {wordCount.toLocaleString("ru-RU")}</span>
         <span>•</span>
         <span>Символы: {charCount.toLocaleString("ru-RU")}</span>
+        {pageInfo && (
+          <>
+            <span>•</span>
+            <span className="font-medium text-foreground/80">{pageInfo}</span>
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-4">

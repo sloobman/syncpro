@@ -28,6 +28,7 @@ import {
   Upload,
   Loader2,
   AlertCircle,
+  Scissors,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -475,6 +476,12 @@ export function BlockEditorItem({
       return;
     }
 
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      onInsertAfter?.("page-break");
+      return;
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       if (
         block.blockType === "paragraph" ||
@@ -573,6 +580,8 @@ export function BlockEditorItem({
         return <ImageIcon className="h-3.5 w-3.5" />;
       case "divider":
         return <Minus className="h-3.5 w-3.5" />;
+      case "page-break":
+        return <Scissors className="h-3.5 w-3.5" />;
       default:
         return <Pilcrow className="h-3.5 w-3.5" />;
     }
@@ -639,6 +648,10 @@ export function BlockEditorItem({
         <DropdownMenuItem onClick={() => onChangeType("divider")} className="gap-2 cursor-pointer">
           <Minus className="h-3.5 w-3.5 text-muted-foreground" />
           <span>Разделитель</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onChangeType("page-break")} className="gap-2 cursor-pointer text-primary">
+          <Scissors className="h-3.5 w-3.5" />
+          <span>Разрыв страницы</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => onInsertAfter("paragraph")} className="gap-2 cursor-pointer text-primary">
@@ -711,6 +724,35 @@ export function BlockEditorItem({
       </Button>
     </div>
   );
+
+  // 0. RENDER PAGE BREAK BLOCK
+  if (block.blockType === "page-break") {
+    return (
+      <div className="group relative my-6 flex items-center select-none" onFocus={onFocus} data-page-break="true">
+        <div className="absolute -left-7 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
+          {blockTypeDropdown}
+        </div>
+        <div className="w-full flex items-center gap-2 border-t-2 border-dashed border-primary/50 py-1">
+          <span className="text-[11px] font-semibold text-primary/80 uppercase tracking-wider px-2 py-0.5 rounded bg-primary/10 flex items-center gap-1.5 shrink-0">
+            <Scissors className="h-3 w-3" />
+            Разрыв страницы
+          </span>
+          <div className="flex-1 h-[1px] bg-border" />
+        </div>
+        {canEdit && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onDelete}
+            className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer ml-2 shrink-0"
+            title="Удалить разрыв страницы"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   // 1. RENDER DIVIDER BLOCK
   if (block.blockType === "divider") {
