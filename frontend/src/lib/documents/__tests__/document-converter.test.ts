@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DocumentConverter } from "../document-converter";
+import { validatePageLayout } from "@/lib/types/page-layout";
 import { sanitizeInlineStyle, styleStringToCSSProperties } from "@/components/editor/rich-text-renderer";
 import JSZip from "jszip";
 
@@ -83,4 +84,74 @@ test("DocumentConverter imports plain text and markdown", async () => {
   const resultTxt = await DocumentConverter.importFile(txtFile);
   assert.strictEqual(resultTxt.title, "notes");
   assert.strictEqual(resultTxt.markdown, "Простой текстовый контент");
+});
+
+
+test("sanitizeInlineStyle preserves new typography and layout properties (line-height, letter-spacing, width)", () => {
+  const input = "line-height: 1.5; letter-spacing: 1px; margin-bottom: 12px; width: 50%; padding: 8px;";
+  const sanitized = sanitizeInlineStyle(input);
+
+  assert.match(sanitized, /line-height: 1.5/);
+  assert.match(sanitized, /letter-spacing: 1px/);
+  assert.match(sanitized, /margin-bottom: 12px/);
+  assert.match(sanitized, /width: 50%/);
+  assert.match(sanitized, /padding: 8px/);
+});
+
+test("validatePageLayout enforces guardrail constraints on custom format and margins", () => {
+  // 1. Valid layout
+  const valid = validatePageLayout({
+    format: "custom",
+    orientation: "portrait",
+    margins: "custom",
+    zoom: 1.0,
+    customDimensions: { widthMm: 200, heightMm: 250 },
+    customMargins: { topMm: 15, bottomMm: 15, leftMm: 15, rightMm: 15 },
+  });
+  assert.strictEqual(valid.valid, true);
+
+  // 2. Page dimension too small (< 100mm)
+  const tooSmall = validatePageLayout({
+    format: "custom",
+    orientation: "portrait",
+    margins: "normal",
+    zoom: 1.0,
+    customDimensions: { widthMm: 50, heightMm: 80 },
+  });
+  assert.strictEqual(tooSmall.valid, false);
+  assert.ok(tooSmall.error?.includes("100"));
+
+  // 3. Margins leaving less than 50mm printable area
+  const marginOverflow = validatePageLayout({
+    format: "custom",
+    orientation: "portrait",
+    margins: "custom",
+    zoom: 1.0,
+    customDimensions: { widthMm: 120, heightMm: 150 },
+    customMargins: { topMm: 20, bottomMm: 20, leftMm: 40, rightMm: 40 },
+  });
+  assert.strictEqual(marginOverflow.valid, false);
+  assert.ok(marginOverflow.error?.includes("50"));
+});
+
+test("DocumentConverter exports DOCX with HTML styles and without leaking raw HTML tags", async () => {
+  const title = "HTML Styled Doc";
+  const content = '<div style="text-align: center"><span style="background-color: rgba(0,0,0,0); color: rgb(2,8,23)">Отцентрированный заголовок</span></div>\n\n<div style="text-align: right"><span style="color: #ef4444">Выравнивание вправо</span></div>';
+
+  const blob = await DocumentConverter.exportDocx(title, content);
+  assert.ok(blob instanceof Blob);
+  assert.ok(blob.size > 500);
+});
+
+test("DocumentConverter exports Markdown ZIP bundle with document.md and media folder", async () => {
+  const title = "Media Doc";
+  const markdown = "# Заголовок\n\n![Тестовая картинка](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==)\n\nТекст.";
+
+  const zipBlob = await DocumentConverter.exportMarkdownZip(title, markdown);
+  assert.ok(zipBlob instanceof Blob);
+
+  const arrayBuffer = await zipBlob.arrayBuffer();
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  assert.ok(zip.file("Media_Doc.md") || zip.file("Media Doc.md"));
+  assert.ok(zip.file("media/image_1.png"));
 });

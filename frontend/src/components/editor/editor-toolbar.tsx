@@ -44,6 +44,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { BUILT_IN_FONTS, type FontItem, normalizeFontFamily, matchFontFamily, FontManager } from "@/lib/fonts/font-manager";
 import { CustomFontDialog } from "@/components/editor/custom-font-dialog";
 import { LayoutToolbar } from "./layout-toolbar";
+import { SpacingPopover } from "./spacing-popover";
+import { LinkDialog } from "./link-dialog";
 import type { PageLayoutConfig } from "@/lib/types/page-layout";
 
 export interface EditorToolbarProps {
@@ -60,6 +62,11 @@ export interface EditorToolbarProps {
   pageConfig?: PageLayoutConfig;
   onChangePageConfig?: (updates: Partial<PageLayoutConfig>) => void;
   onInsertPageBreak?: () => void;
+  currentLineHeight?: number | string;
+  currentParagraphSpacing?: number;
+  currentLetterSpacing?: string;
+  onChangeSpacing?: (spacing: { lineHeight: number | string; paragraphSpacing: number; letterSpacing: string }, applyToAll: boolean) => void;
+  onInsertLink?: (link: { url: string; text: string; openInNewTab: boolean }) => void;
 }
 
 const TEXT_COLORS = [
@@ -107,12 +114,57 @@ export function EditorToolbar({
   pageConfig,
   onChangePageConfig,
   onInsertPageBreak,
+  currentLineHeight = 1.5,
+  currentParagraphSpacing = 8,
+  currentLetterSpacing = "normal",
+  onChangeSpacing,
+  onInsertLink,
 }: EditorToolbarProps) {
   const [customFonts, setCustomFonts] = useState<FontItem[]>([]);
   const [isFontDialogOpen, setIsFontDialogOpen] = useState(false);
   const [selectedColor, setSelectedColor] = useState<string>("inherit");
     const [selectedHighlight, setSelectedHighlight] = useState<string>("transparent");
   const [activeTab, setActiveTab] = useState<"home" | "layout">("home");
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [selectedLinkText, setSelectedLinkText] = useState("");
+  const savedRangeRef = React.useRef<Range | null>(null);
+
+  const handleOpenLinkDialog = () => {
+    if (typeof window !== "undefined") {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+        savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+        setSelectedLinkText(sel.toString());
+      } else {
+        savedRangeRef.current = null;
+        setSelectedLinkText("");
+      }
+    }
+    setIsLinkDialogOpen(true);
+  };
+
+  const handleSaveLink = (linkData: { url: string; text: string; openInNewTab: boolean }) => {
+    if (onInsertLink) {
+      onInsertLink(linkData);
+    } else {
+      if (typeof window !== "undefined") {
+        const sel = window.getSelection();
+        if (savedRangeRef.current && sel) {
+          sel.removeAllRanges();
+          sel.addRange(savedRangeRef.current);
+        }
+        const targetAttr = linkData.openInNewTab ? ' target="_blank" rel="noopener noreferrer"' : '';
+        const linkHtml = `<a href="${linkData.url}"${targetAttr}>${linkData.text}</a>`;
+        document.execCommand("insertHTML", false, linkHtml);
+      }
+    }
+  };
+
+  const handleRemoveLink = () => {
+    if (typeof document !== "undefined") {
+      document.execCommand("unlink");
+    }
+  };
 
   const allSizes = useMemo(() => {
     const list = [...FONT_SIZES];
@@ -661,6 +713,21 @@ export function EditorToolbar({
             </TooltipTrigger>
             <TooltipContent>По ширине</TooltipContent>
           </Tooltip>
+
+          <Separator orientation="vertical" className="h-4 mx-1 shrink-0" />
+
+          {/* Spacing Popover */}
+          <SpacingPopover
+            currentLineHeight={currentLineHeight}
+            currentParagraphSpacing={currentParagraphSpacing}
+            currentLetterSpacing={currentLetterSpacing}
+            onChangeSpacing={(spacing, applyToAll) => {
+              if (onChangeSpacing) {
+                onChangeSpacing(spacing, applyToAll);
+              }
+            }}
+            disabled={disabled}
+          />
         </div>
 
         <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
@@ -825,7 +892,7 @@ export function EditorToolbar({
                 variant="ghost"
                 size="icon"
                 onMouseDown={preventBlur}
-                onClick={() => trigger("link")}
+                onClick={handleOpenLinkDialog}
                 className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <LinkIcon className="h-3.5 w-3.5" />
@@ -834,6 +901,15 @@ export function EditorToolbar({
             <TooltipContent>Вставить ссылку</TooltipContent>
           </Tooltip>
         </div>
+
+        {/* Link Dialog */}
+        <LinkDialog
+          open={isLinkDialogOpen}
+          onOpenChange={setIsLinkDialogOpen}
+          initialText={selectedLinkText}
+          onSave={handleSaveLink}
+          onRemove={handleRemoveLink}
+        />
 
         {/* Custom Font Dialog */}
         <CustomFontDialog

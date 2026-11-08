@@ -60,6 +60,7 @@ export interface EditorTopbarProps {
   onSelectBranch?: (b: string) => void;
   onCreateBranch?: (b: string) => void;
   onExportMarkdown?: () => void;
+  onExportMarkdownZip?: () => void;
   onExportPdf?: () => void;
   onExportDocx?: () => void;
   onExportOdt?: () => void;
@@ -84,6 +85,7 @@ export function EditorTopbar({
   onSelectBranch,
   onCreateBranch,
   onExportMarkdown,
+  onExportMarkdownZip,
   onExportPdf,
   onExportDocx,
   onExportOdt,
@@ -315,6 +317,12 @@ export function EditorTopbar({
                 <FileDown className="h-3.5 w-3.5" />
                 <span>Экспорт в Markdown (.md)</span>
               </DropdownMenuItem>
+              {onExportMarkdownZip && (
+                <DropdownMenuItem onClick={onExportMarkdownZip} className="gap-2 cursor-pointer">
+                  <FileDown className="h-3.5 w-3.5 text-emerald-500" />
+                  <span>Экспорт в Markdown ZIP с медиа (.zip)</span>
+                </DropdownMenuItem>
+              )}
               {onExportTxt && (
                 <DropdownMenuItem onClick={onExportTxt} className="gap-2 cursor-pointer">
                   <FileText className="h-3.5 w-3.5 text-slate-500" />
