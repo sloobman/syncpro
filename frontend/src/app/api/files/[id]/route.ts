@@ -19,6 +19,8 @@ export async function GET(
         "Content-Type": file.mimeType,
         "Content-Length": String(file.sizeBytes),
         "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
       },
     });
   } catch (err) {

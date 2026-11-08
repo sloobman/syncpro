@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
+  FileText,
   Star,
   UserPlus,
   MoreVertical,
@@ -60,6 +61,10 @@ export interface EditorTopbarProps {
   onCreateBranch?: (b: string) => void;
   onExportMarkdown?: () => void;
   onExportPdf?: () => void;
+  onExportDocx?: () => void;
+  onExportOdt?: () => void;
+  onExportTxt?: () => void;
+  onImportFile?: (file: File) => void;
   onImportMarkdown?: (content: string, filename?: string) => void;
   onDeleteDocument?: () => void;
   onToggleHistory?: () => void;
@@ -80,6 +85,10 @@ export function EditorTopbar({
   onCreateBranch,
   onExportMarkdown,
   onExportPdf,
+  onExportDocx,
+  onExportOdt,
+  onExportTxt,
+  onImportFile,
   onImportMarkdown,
   onDeleteDocument,
   onToggleHistory,
@@ -118,6 +127,12 @@ export function EditorTopbar({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (onImportFile) {
+      onImportFile(file);
+      e.target.value = "";
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
@@ -135,7 +150,7 @@ export function EditorTopbar({
       <input
         type="file"
         ref={fileInputRef}
-        accept=".md,.markdown,.txt"
+        accept=".docx,.odt,.doc,.txt,.md,.markdown"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -274,22 +289,41 @@ export function EditorTopbar({
                 <span>Сравнить ветки (Diff)</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              {canEdit && onImportMarkdown && (
+              {canEdit && (onImportFile || onImportMarkdown) && (
                 <DropdownMenuItem
                   onClick={() => fileInputRef.current?.click()}
-                  className="gap-2 cursor-pointer text-primary focus:text-primary"
+                  className="gap-2 cursor-pointer text-primary focus:text-primary font-medium"
                 >
                   <FileUp className="h-3.5 w-3.5" />
-                  <span>Импортировать (.md, .txt)</span>
+                  <span>Импортировать (.docx, .odt, .doc, .txt, .md)</span>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              {onExportDocx && (
+                <DropdownMenuItem onClick={onExportDocx} className="gap-2 cursor-pointer">
+                  <FileDown className="h-3.5 w-3.5 text-blue-500" />
+                  <span>Экспорт в Word (.docx)</span>
+                </DropdownMenuItem>
+              )}
+              {onExportOdt && (
+                <DropdownMenuItem onClick={onExportOdt} className="gap-2 cursor-pointer">
+                  <FileDown className="h-3.5 w-3.5 text-amber-500" />
+                  <span>Экспорт в OpenDocument (.odt)</span>
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={onExportMarkdown} className="gap-2 cursor-pointer">
                 <FileDown className="h-3.5 w-3.5" />
                 <span>Экспорт в Markdown (.md)</span>
               </DropdownMenuItem>
+              {onExportTxt && (
+                <DropdownMenuItem onClick={onExportTxt} className="gap-2 cursor-pointer">
+                  <FileText className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Экспорт в Текст (.txt)</span>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={onExportPdf} className="gap-2 cursor-pointer">
                 <Printer className="h-3.5 w-3.5" />
-                <span>Печать / PDF</span>
+                <span>Печать / Сохранить как PDF</span>
               </DropdownMenuItem>
 
               {canEdit && onDeleteDocument && (

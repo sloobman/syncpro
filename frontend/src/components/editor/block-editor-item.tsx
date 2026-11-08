@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { BlockNode, BlockType } from "@/lib/crdt/types";
-import { RichTextRenderer } from "./rich-text-renderer";
+import { RichTextRenderer, sanitizeInlineStyle } from "./rich-text-renderer";
 import {
   Heading1,
   Heading2,
@@ -54,6 +54,59 @@ interface BlockEditorItemProps {
   documentId?: string;
 }
 
+/**
+ * Sanitizes HTML before rendering in contentEditable DOM to prevent Stored XSS.
+ * Removes forbidden tags (script, iframe, etc.) and all on* event handlers.
+ */
+export function sanitizeHtmlForEditor(rawHtml: string): string {
+  if (!rawHtml) return "";
+  if (typeof window === "undefined") {
+    return rawHtml
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+      .replace(/\s*on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/javascript:[^\s"'>]+/gi, "");
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(rawHtml, "text/html");
+
+  const forbiddenTags = [
+    "script", "iframe", "object", "embed", "form", "meta", "style",
+    "link", "applet", "base"
+  ];
+  forbiddenTags.forEach((t) => {
+    doc.querySelectorAll(t).forEach((node) => node.remove());
+  });
+
+  doc.querySelectorAll("*").forEach((node) => {
+    for (const attr of Array.from(node.attributes)) {
+      const name = attr.name.toLowerCase();
+      const val = attr.value;
+
+      if (name.startsWith("on")) {
+        node.removeAttribute(name);
+        continue;
+      }
+
+      if ((name === "href" || name === "src") && /^(?:javascript|vbscript|data:text\/html):/i.test(val.trim())) {
+        node.removeAttribute(name);
+        continue;
+      }
+
+      if (name === "style") {
+        const safe = sanitizeInlineStyle(val);
+        if (safe) {
+          node.setAttribute("style", safe);
+        } else {
+          node.removeAttribute("style");
+        }
+      }
+    }
+  });
+
+  return doc.body.innerHTML;
+}
+
 // Convert Markdown to visual HTML for contentEditable
 export function markdownToHtml(md: string): string {
   if (!md) return "";
@@ -74,7 +127,7 @@ export function markdownToHtml(md: string): string {
     // Link: [text](url)
     .replace(/\[(.*?)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary underline hover:text-primary/80">$1</a>');
 
-  return html;
+  return sanitizeHtmlForEditor(html);
 }
 
 // Convert DOM back to standard Markdown
@@ -119,11 +172,43 @@ export function htmlToMarkdown(html: string): string {
         const href = el.getAttribute("href") || "#";
         return `[${inner || href}](${href})`;
       }
+      case "span": {
+        const style = el.getAttribute("style");
+        const safeStyle = sanitizeInlineStyle(style || "");
+        if (safeStyle && inner) {
+          return `<span style="${safeStyle}">${inner}</span>`;
+        }
+        return inner;
+      }
+      case "font": {
+        const styles: string[] = [];
+        const color = el.getAttribute("color");
+        const face = el.getAttribute("face");
+        const size = el.getAttribute("size");
+        if (color) styles.push(`color: ${color}`);
+        if (face) styles.push(`font-family: ${face}`);
+        if (size) {
+          const sizeMap: Record<string, string> = {
+            "1": "10px", "2": "12px", "3": "14px", "4": "16px", "5": "18px", "6": "24px", "7": "32px"
+          };
+          styles.push(`font-size: ${sizeMap[size] || "16px"}`);
+        }
+        const safeStyle = sanitizeInlineStyle(styles.join("; "));
+        if (safeStyle && inner) {
+          return `<span style="${safeStyle}">${inner}</span>`;
+        }
+        return inner;
+      }
+      case "div":
+      case "p": {
+        const textAlign = el.style.textAlign || el.getAttribute("align");
+        if (textAlign && ["left", "center", "right", "justify"].includes(textAlign.toLowerCase()) && textAlign.toLowerCase() !== "left") {
+          return `<div style="text-align: ${textAlign.toLowerCase()}">${inner}</div>`;
+        }
+        return inner ? `\n${inner}` : "\n";
+      }
       case "br":
         return "\n";
-      case "div":
-      case "p":
-        return inner ? `\n${inner}` : "\n";
       default:
         return inner;
     }
@@ -215,6 +300,27 @@ function parseTodo(text: string): { done: boolean; task: string } {
   return { done: false, task: text };
 }
 
+
+export function applyFontSizeToSelection(size: string): boolean {
+  if (typeof window === "undefined") return false;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+  const range = selection.getRangeAt(0);
+  const span = document.createElement("span");
+  span.style.fontSize = size;
+  try {
+    span.appendChild(range.extractContents());
+    range.insertNode(span);
+    const newRange = document.createRange();
+    newRange.selectNodeContents(span);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function BlockEditorItem({
   block,
   text,
@@ -291,6 +397,7 @@ export function BlockEditorItem({
       if (contentRef.current) {
         contentRef.current.focus();
       }
+      try { document.execCommand("styleWithCSS", false, "true"); } catch {} 
       document.execCommand(command, false, value);
       handleContentInput();
     },
