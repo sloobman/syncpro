@@ -4,6 +4,8 @@ import { hashPassword } from "@/lib/auth/password";
 import { signToken } from "@/lib/auth/jwt";
 import { WorkspaceRepository } from "@/lib/db/workspace-repository";
 import { NotificationRepository } from "@/lib/db/notification-repository";
+import { VerificationRepository } from "@/lib/db/verification-repository";
+import { sendVerificationEmail } from "@/lib/email/mailer";
 
 // Server-side email validation regex (RFC 5322 simplified)
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -73,6 +75,8 @@ export async function POST(request: NextRequest) {
       email,
       passwordHash,
       role: "user",
+      emailVerified: false,
+      status: "active",
     });
 
     // Claim any pending invitations for this email or create personal workspace
@@ -90,12 +94,27 @@ export async function POST(request: NextRequest) {
       await NotificationRepository.createNotification({
         userId: safeUser.id,
         title: "Добро пожаловать в SyncPro!",
-        description: "Ваше рабочее пространство готово. Создавайте документы и приглашайте коллег для совместной работы.",
+        description: "Подтвердите ваш адрес электронной почты, чтобы активировать все возможности совместной работы.",
         type: "system",
-        link: "/dashboard",
+        link: "/auth/verify-email",
       });
     } catch (notifErr) {
       console.warn("[Register notification notice]:", notifErr);
+    }
+
+    // Generate verification token & OTP code, and send verification email
+    try {
+      const { token: verifToken, otpCode } = await VerificationRepository.generateVerification(
+        safeUser.id
+      );
+      await sendVerificationEmail({
+        to: safeUser.email,
+        name: safeUser.name,
+        token: verifToken,
+        otpCode,
+      });
+    } catch (emailErr) {
+      console.error("[Register email dispatch error]:", emailErr);
     }
 
     // Generate JWT
@@ -104,11 +123,13 @@ export async function POST(request: NextRequest) {
       email: safeUser.email,
       name: safeUser.name,
       role: safeUser.role,
+      email_verified: false,
+      status: safeUser.status,
     });
 
-    // Return user info without token in body — token is only in HTTP-only cookie
+    // Return user info
     const response = NextResponse.json(
-      { user: safeUser },
+      { user: safeUser, requiresVerification: true },
       { status: 201 }
     );
 

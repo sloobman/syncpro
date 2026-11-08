@@ -25,6 +25,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check account status
+    if (userRow.status === "blocked") {
+      return NextResponse.json(
+        { error: "Ваша учетная запись заблокирована администратором." },
+        { status: 403 }
+      );
+    }
+
     // Verify password with bcrypt
     const isValid = await verifyPassword(password, userRow.password_hash);
     if (!isValid) {
@@ -40,6 +48,8 @@ export async function POST(request: NextRequest) {
       name: userRow.name,
       avatarUrl: userRow.avatar_url,
       role: userRow.role || "user",
+      emailVerified: Boolean(userRow.email_verified),
+      status: userRow.status || "active",
       timezone: "Europe/Moscow",
       locale: "ru" as const,
       createdAt: new Date(userRow.created_at).toISOString(),
@@ -59,9 +69,11 @@ export async function POST(request: NextRequest) {
       email: safeUser.email,
       name: safeUser.name,
       role: safeUser.role,
+      email_verified: safeUser.emailVerified,
+      status: safeUser.status,
     });
 
-    // Return user info without token in body — token is only in HTTP-only cookie
+    // Return user info
     const response = NextResponse.json(
       { user: safeUser },
       { status: 200 }

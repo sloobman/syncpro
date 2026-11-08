@@ -4,6 +4,9 @@ export interface User {
   name: string;
   email: string;
   avatarUrl: string | null;
+  role?: string;
+  emailVerified?: boolean;
+  status?: string;
   timezone: string;
   locale: "ru" | "en";
   createdAt: string;

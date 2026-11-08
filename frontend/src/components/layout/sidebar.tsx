@@ -10,6 +10,7 @@ import {
   Plus,
   Compass,
   LogOut,
+  Shield,
 } from "lucide-react";
 import { Logo } from "@/components/shared/logo";
 import { Button } from "@/components/ui/button";
@@ -98,51 +99,56 @@ export function Sidebar() {
         </div>
 
         {/* Workspaces Section */}
-        <div className="mt-6 px-3">
-          {!sidebarCollapsed && (
-            <div className="flex items-center justify-between px-3 mb-2">
+        <div className="px-3 pt-6 pb-2">
+          <div className="flex items-center justify-between mb-2 px-1">
+            {!sidebarCollapsed && (
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Пространства
               </span>
-              <CreateWorkspaceDialog>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
-                  title="Создать пространство"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </Button>
-              </CreateWorkspaceDialog>
-            </div>
-          )}
+            )}
+            <CreateWorkspaceDialog>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer",
+                  sidebarCollapsed && "mx-auto"
+                )}
+                title="Создать пространство"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </CreateWorkspaceDialog>
+          </div>
+
           <div className="space-y-1">
-            {workspaces.map((ws) => {
-              const active = pathname.includes(`/dashboard/workspace/${ws.id}`);
-              return (
-                <Link key={ws.id} href={`/dashboard/workspace/${ws.id}`}>
-                  <span
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer",
-                      active
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                      sidebarCollapsed && "justify-center px-0"
-                    )}
-                  >
-                    <span className="text-base shrink-0">{ws.iconEmoji || "📁"}</span>
-                    {!sidebarCollapsed && <span className="truncate">{ws.name}</span>}
+            {workspaces.map((ws) => (
+              <Link key={ws.id} href={`/dashboard?workspace=${ws.id}`}>
+                <span
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors cursor-pointer",
+                    pathname.includes(ws.id)
+                      ? "bg-accent text-accent-foreground font-medium"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    sidebarCollapsed && "justify-center px-0"
+                  )}
+                >
+                  <span className="text-base shrink-0">
+                    {ws.iconEmoji || "📁"}
                   </span>
-                </Link>
-              );
-            })}
+                  {!sidebarCollapsed && (
+                    <span className="truncate flex-1">{ws.name}</span>
+                  )}
+                </span>
+              </Link>
+            ))}
           </div>
         </div>
 
         {/* Recent Documents */}
-        <div className="mt-6 px-3">
+        <div className="px-3 pt-4">
           {!sidebarCollapsed && (
-            <div className="px-3 mb-2">
+            <div className="mb-2 px-1">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 Недавние
               </span>
@@ -168,6 +174,21 @@ export function Sidebar() {
 
       {/* Bottom Profile and Controls */}
       <div className="p-3 border-t border-border space-y-1">
+        {user?.role === "admin" && (
+          <Link href="/admin">
+            <span
+              className={cn(
+                "flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-lg text-red-500 hover:bg-red-500/10 transition-colors cursor-pointer",
+                pathname.startsWith("/admin") && "bg-red-500/10 text-red-600 font-semibold",
+                sidebarCollapsed && "justify-center px-0"
+              )}
+            >
+              <Shield className="h-4 w-4 shrink-0" />
+              {!sidebarCollapsed && <span>Админ-панель</span>}
+            </span>
+          </Link>
+        )}
+
         <Link href="/settings">
           <span
             className={cn(
