@@ -140,10 +140,50 @@ export function PagedCanvas({
     return result;
   }, [blocks, blockTexts, availableHeightPx, pageConfig.lineHeight, pageConfig.paragraphSpacing]);
 
+  const isDraggingRef = useRef(false);
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+    isDraggingRef.current = false;
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (mouseDownPosRef.current) {
+      const dx = Math.abs(e.clientX - mouseDownPosRef.current.x);
+      const dy = Math.abs(e.clientY - mouseDownPosRef.current.y);
+      if (dx > 4 || dy > 4) {
+        isDraggingRef.current = true;
+      }
+    }
+  };
+
+  const handleMouseUp = () => {
+    mouseDownPosRef.current = null;
+    if (isDraggingRef.current) {
+      setTimeout(() => {
+        isDraggingRef.current = false;
+      }, 100);
+    }
+  };
+
   /**
    * Handle Smart Click (Click and Type) on the page sheet
    */
   const handleSheetClick = (e: React.MouseEvent<HTMLDivElement>, pageIndex: number) => {
+    // 1. If mouse was dragged during text selection, do not trigger smart click!
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false;
+      return;
+    }
+
+    // 2. If user currently has an active non-collapsed text selection, do NOT create a new block!
+    if (typeof window !== "undefined") {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim().length > 0) {
+        return;
+      }
+    }
     // Only trigger if clicking on the page sheet itself or empty area (not buttons, inputs, controls, or existing blocks)
     const target = e.target as HTMLElement;
     if (
@@ -239,6 +279,9 @@ export function PagedCanvas({
               <div
                 id={`document-page-${idx}`}
                 onClick={(e) => handleSheetClick(e, idx)}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
                 className="bg-card text-foreground shadow-md hover:shadow-lg transition-all border border-border/70 rounded-xs relative editor-canvas cursor-text break-words [overflow-wrap:anywhere] overflow-hidden"
                 style={{
                   width: `${dim.widthPx}px`,
@@ -253,7 +296,14 @@ export function PagedCanvas({
                 }}
               >
                 {/* Content Blocks for this Page */}
-                <div className="space-y-3 w-full min-w-0 max-w-full">
+                <div
+                  className="w-full min-w-0 max-w-full flex flex-col"
+                  style={{
+                    gap: `${pageConfig.paragraphSpacing ?? 8}px`,
+                    lineHeight: "inherit",
+                    letterSpacing: "inherit",
+                  }}
+                >
                   {page.blocks.map((block) => {
                     const bKey = formatID(block.id);
                     const text = blockTexts[bKey] ?? "";

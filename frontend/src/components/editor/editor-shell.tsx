@@ -1135,7 +1135,10 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   }, [blockTexts, title]);
 
   const handleChangeSpacing = useCallback(
-    (spacing: { lineHeight: number | string; paragraphSpacing: number; letterSpacing: string }) => {
+    (
+      spacing: { lineHeight: number | string; paragraphSpacing: number; letterSpacing: string },
+      applyToAll: boolean = true
+    ) => {
       setPageLayout((prev) => {
         const updated = {
           ...prev,
@@ -1144,12 +1147,38 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           letterSpacing: spacing.letterSpacing,
         };
         try {
-          localStorage.setItem("syncpro_page_layout", JSON.stringify(updated));
+          localStorage.setItem(`syncpro_layout_${documentId}`, JSON.stringify(updated));
         } catch {}
         return updated;
       });
+
+      if (!applyToAll && activeBlockId && canEdit) {
+        const doc = docRef.current;
+        if (doc) {
+          try {
+            const blockId = parseID(activeBlockId);
+            const currentText = doc.getBlockText(blockId);
+            const lhStyle = `line-height: ${spacing.lineHeight}`;
+            const mbStyle = `margin-bottom: ${spacing.paragraphSpacing}px`;
+            const lsStyle = spacing.letterSpacing !== "normal" ? `letter-spacing: ${spacing.letterSpacing}` : "";
+            const combinedStyle = [lhStyle, mbStyle, lsStyle].filter(Boolean).join("; ");
+
+            let updatedText = currentText;
+            if (updatedText.startsWith('<div style="') && updatedText.endsWith("</div>")) {
+              updatedText = updatedText.replace(/<div style="([^"]*)">([\s\S]*)<\/div>/, (_m, oldStyle, inner) => {
+                return `<div style="${oldStyle}; ${combinedStyle}">${inner}</div>`;
+              });
+            } else if (currentText.trim()) {
+              updatedText = `<div style="${combinedStyle}">${currentText}</div>`;
+            }
+            if (updatedText !== currentText) {
+              handleTextChange(blockId, updatedText);
+            }
+          } catch {}
+        }
+      }
     },
-    []
+    [documentId, activeBlockId, canEdit, handleTextChange]
   );
 
   const handleInsertLink = useCallback(
