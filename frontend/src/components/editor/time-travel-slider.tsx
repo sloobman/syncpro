@@ -28,7 +28,10 @@ export function TimeTravelSlider({
   const isHistorical = currentIndex < commits.length - 1;
 
   return (
-    <div className="bg-card/95 border border-border/80 backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl flex flex-col gap-2.5 select-none w-full max-w-2xl mx-auto overflow-hidden">
+    <div
+      data-testid="time-travel-slider"
+      className="bg-card/95 border border-border/80 backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl flex flex-col gap-2.5 select-none w-full max-w-2xl mx-auto overflow-hidden"
+    >
       {/* Header bar: status & actions with wrapping */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
         {/* Left: Commit indicator */}
