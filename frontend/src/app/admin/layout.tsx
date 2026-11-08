@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Shield, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { AdminNav } from "./admin-nav";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -15,18 +15,37 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
   const user = useAuthStore((state) => state.user);
-  const isLoading = useAuthStore((state) => state.isLoading);
+  const checkAuth = useAuthStore((state) => state.checkAuth);
+
+  const isAdmin = user?.role === "admin";
 
   useEffect(() => {
-    if (!isLoading && (!user || user.role !== "admin")) {
+    let isCancelled = false;
+    checkAuth().finally(() => {
+      if (!isCancelled) {
+        setIsAuthChecked(true);
+      }
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [checkAuth]);
+
+  useEffect(() => {
+    if (isAuthChecked && !isAdmin) {
       notFound();
     }
-  }, [user, isLoading]);
+  }, [isAuthChecked, isAdmin]);
 
-  // Zero Leakage: Render nothing if not verified as admin
-  if (isLoading || !user || user.role !== "admin") {
-    return null;
+  // Zero Leakage: Render minimal loader until verified as admin
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-muted-foreground/50" />
+      </div>
+    );
   }
 
   return (
