@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { query } from "./postgres";
 import { NotificationRepository } from "./notification-repository";
+import { MerkleDAGRepository } from './dag-repository';
 import type { Workspace, Document, MemberRole } from "@/types";
 
 export interface DbWorkspaceRow {
@@ -705,6 +706,18 @@ export class WorkspaceRepository {
     ]);
 
     const row = res.rows[0];
+
+    // Ensure initial Merkle-DAG commit is persisted in PostgreSQL
+    try {
+      await MerkleDAGRepository.createInitialCommit(
+        row.id,
+        validUserId || '00000000-0000-0000-0000-000000000000',
+        params.content || '',
+        'Автор документа'
+      );
+    } catch (commitErr) {
+      console.warn('[createDocument] Initial commit notice:', commitErr);
+    }
     return {
       id: row.id,
       workspaceId: row.workspace_id || "",

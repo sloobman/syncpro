@@ -8,6 +8,8 @@ import { EditorSidebar, type HeadingItem } from "@/components/editor/editor-side
 import { EditorStatusbar } from "@/components/editor/editor-statusbar";
 import { TimeTravelSlider } from "@/components/editor/time-travel-slider";
 import { MergeBranchDialog } from "@/components/editor/merge-branch-dialog";
+import { ForkBranchDialog } from "@/components/editor/fork-branch-dialog";
+import type { BranchInfo } from "@/components/editor/branch-graph-view";
 import { CommitDialog } from "@/components/editor/commit-dialog";
 import { DiffViewer } from "@/components/editor/diff-viewer";
 import { BlockEditorItem } from "@/components/editor/block-editor-item";
@@ -151,6 +153,9 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
   const [branch, setBranch] = useState("main");
   const [branches, setBranches] = useState<string[]>(["main", "dev"]);
+  const [branchesInfo, setBranchesInfo] = useState<BranchInfo[]>([]);
+  const [isForkDialogOpen, setIsForkDialogOpen] = useState(false);
+  const [forkSourceCommit, setForkSourceCommit] = useState<MerkleCommit | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<CollaboratorInfo[]>([]);
 
   // Per-branch drafts map so switching branches switches document content
@@ -244,6 +249,19 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           initCRDTFromMarkdown(freshDoc, data.content);
           freshDoc.onUpdate(refreshBlocks);
           refreshBlocks();
+        }
+      })
+      .catch(() => {});
+
+    // Fetch branches from PostgreSQL
+    fetch(`/api/documents/${documentId}/branches`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.branches) && data.branches.length > 0) {
+          setBranchesInfo(data.branches);
+          const bNames = data.branches.map((b: { name: string }) => b.name);
+          if (!bNames.includes("main")) bNames.unshift("main");
+          setBranches(Array.from(new Set(bNames)));
         }
       })
       .catch(() => {});
@@ -693,27 +711,139 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     [branch, commits, refreshBlocks, title]
   );
 
-  // Branch creation
+  // Branch creation with backend persistence
   const handleCreateBranch = useCallback(
-    (newBranch: string) => {
-      const cleanBranch = newBranch.trim();
+    async (newBranch: string, fromCommitId?: string) => {
+      const cleanBranch = newBranch.trim().replace(/\s+/g, "-");
       if (!cleanBranch) return;
+
+      const baseId = fromCommitId || currentCommitId || (commits.length > 0 ? commits[commits.length - 1].id : undefined);
+
+      try {
+        const res = await fetch(`/api/documents/${documentId}/branches`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: cleanBranch,
+            fromCommitId: baseId,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.branch) {
+            setBranchesInfo((prev) => [
+              ...prev.filter((b) => b.name !== cleanBranch),
+              data.branch,
+            ]);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to persist branch on server:", err);
+      }
 
       if (!branches.includes(cleanBranch)) {
         setBranches((prev) => [...prev, cleanBranch]);
       }
 
-      const doc = docRef.current;
-      const currentMd = doc ? serializeCRDTToMarkdown(doc) : "";
-      branchContentsRef.current[cleanBranch] = currentMd;
+      // Determine initial content from base commit if provided, or from current draft
+      const baseCommit = baseId ? commits.find((c) => c.id === baseId) : null;
+      const initialBranchContent =
+        baseCommit?.content ??
+        (docRef.current ? serializeCRDTToMarkdown(docRef.current) : "");
 
+      branchContentsRef.current[cleanBranch] = initialBranchContent;
       handleSelectBranch(cleanBranch);
     },
-    [branches, handleSelectBranch]
+    [branches, currentCommitId, commits, documentId, handleSelectBranch]
+  );
+
+  // Fork branch confirmation handler
+  const handleConfirmFork = useCallback(
+    (branchName: string, sourceCommitId: string) => {
+      handleCreateBranch(branchName, sourceCommitId);
+      setTimeTravelIndex(null);
+    },
+    [handleCreateBranch]
+  );
+
+  // Revert commit handler
+  const handleRevertCommit = useCallback(
+    async (commitId: string) => {
+      try {
+        const res = await fetch(`/api/documents/${documentId}/commits/revert`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            commitId,
+            branch,
+          }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.commit) {
+            setCommits((prev) => [...prev, data.commit]);
+            setCurrentCommitId(data.commit.id);
+            const revertedContent = data.revertedContent ?? data.commit.content ?? "";
+            branchContentsRef.current[branch] = revertedContent;
+            useWorkspaceStore.getState().saveDocumentContent(documentId, revertedContent, title);
+
+            const freshDoc = new CRDTDocument(1);
+            docRef.current = freshDoc;
+            initCRDTFromMarkdown(freshDoc, revertedContent);
+            freshDoc.onUpdate(refreshBlocks);
+            refreshBlocks();
+            setTimeTravelIndex(null);
+          }
+        }
+      } catch (err) {
+        console.error("Revert commit error:", err);
+      }
+    },
+    [branch, documentId, refreshBlocks, title]
+  );
+
+  // Delete commit handler
+  const handleDeleteCommit = useCallback(
+    async (commitId: string) => {
+      try {
+        const res = await fetch(
+          `/api/documents/${documentId}/commits?commitId=${encodeURIComponent(commitId)}`,
+          {
+            method: "DELETE",
+            credentials: "include",
+          }
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          setCommits((prev) => prev.filter((c) => c.id !== commitId));
+          if (data.newHeadCommitId) {
+            setCurrentCommitId(data.newHeadCommitId);
+            const nextCommit = commits.find((c) => c.id === data.newHeadCommitId);
+            if (nextCommit?.content) {
+              branchContentsRef.current[branch] = nextCommit.content;
+              const freshDoc = new CRDTDocument(1);
+              docRef.current = freshDoc;
+              initCRDTFromMarkdown(freshDoc, nextCommit.content);
+              freshDoc.onUpdate(refreshBlocks);
+              refreshBlocks();
+            }
+          }
+          setTimeTravelIndex(null);
+        }
+      } catch (err) {
+        console.error("Delete commit error:", err);
+      }
+    },
+    [branch, commits, documentId, refreshBlocks]
   );
 
   // Real 3-Way Merge handler
-  const handleConfirmMerge = async (source: string, target: string) => {
+  const handleConfirmMerge = async (source: string, target: string, resolvedContent?: string) => {
     try {
       const res = await fetch(`/api/documents/${documentId}/merge`, {
         method: "POST",
@@ -723,6 +853,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           sourceBranch: source,
           targetBranch: target,
           targetCommitId: currentCommitId,
+          resolvedContent,
         }),
       });
 
@@ -731,9 +862,20 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         if (data.mergeCommit) {
           setCommits((prev) => [...prev, data.mergeCommit]);
           setCurrentCommitId(data.mergeCommit.id);
-          if (data.mergedPlainText) {
-            branchContentsRef.current[target] = data.mergedPlainText;
-            handleSelectBranch(target);
+          const finalMergedText = data.mergedPlainText ?? data.mergeCommit.content;
+          if (finalMergedText !== undefined && finalMergedText !== null) {
+            branchContentsRef.current[target] = finalMergedText;
+            useWorkspaceStore.getState().saveDocumentContent(documentId, finalMergedText, title);
+
+            if (branch === target) {
+              const freshDoc = new CRDTDocument(1);
+              docRef.current = freshDoc;
+              initCRDTFromMarkdown(freshDoc, finalMergedText);
+              freshDoc.onUpdate(refreshBlocks);
+              refreshBlocks();
+            } else {
+              handleSelectBranch(target);
+            }
           }
         }
       }
@@ -1017,6 +1159,8 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           documentId={documentId}
           commits={commits}
           currentCommitId={currentCommitId}
+          currentBranch={branch}
+          branches={branchesInfo}
           headings={headings}
           onSelectHeading={handleScrollToHeading}
           onSelectCommit={(id) => {
@@ -1024,15 +1168,31 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             const idx = commits.findIndex((c) => c.id === id);
             if (idx >= 0) {
               setTimeTravelIndex(idx);
+              const targetCommit = commits[idx];
+              if (targetCommit?.content !== undefined && targetCommit.content !== null) {
+                const freshDoc = new CRDTDocument(1);
+                docRef.current = freshDoc;
+                initCRDTFromMarkdown(freshDoc, targetCommit.content);
+                freshDoc.onUpdate(refreshBlocks);
+                refreshBlocks();
+              }
             }
           }}
+          onForkBranch={(commitId) => {
+            const c = commits.find((x) => x.id === commitId) || null;
+            setForkSourceCommit(c);
+            setIsForkDialogOpen(true);
+          }}
+          onRevertCommit={handleRevertCommit}
+          onDeleteCommit={handleDeleteCommit}
+          canEdit={canEdit}
           onOpenMergeDialog={() => setIsMergeOpen(true)}
           onOpenDiffDialog={() => setIsDiffOpen(!isDiffOpen)}
         />
 
         {/* Time travel slider bottom dock */}
         {timeTravelIndex !== null && commits.length > 0 && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-full max-w-xl px-4">
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-full max-w-2xl px-4">
             <TimeTravelSlider
               commits={commits}
               currentIndex={timeTravelIndex}
@@ -1041,7 +1201,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
                 if (commits[idx]) {
                   const targetCommit = commits[idx];
                   setCurrentCommitId(targetCommit.id);
-                  if (targetCommit.content) {
+                  if (targetCommit.content !== undefined && targetCommit.content !== null) {
                     const freshDoc = new CRDTDocument(1);
                     docRef.current = freshDoc;
                     initCRDTFromMarkdown(freshDoc, targetCommit.content);
@@ -1052,7 +1212,16 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
               }}
               onExitTimeTravel={() => {
                 setTimeTravelIndex(null);
-                const currentContent = branchContentsRef.current[branch] || "";
+                let currentContent = branchContentsRef.current[branch];
+                if (!currentContent) {
+                  const branchCommits = commits.filter((c) => c.branch === branch);
+                  if (branchCommits.length > 0) {
+                    currentContent = branchCommits[branchCommits.length - 1].content || "";
+                  }
+                }
+                if (!currentContent && commits.length > 0) {
+                  currentContent = commits[commits.length - 1].content || "";
+                }
                 if (currentContent && docRef.current) {
                   const freshDoc = new CRDTDocument(1);
                   docRef.current = freshDoc;
@@ -1062,10 +1231,11 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
                 }
               }}
               onForkBranch={(commitId) => {
-                const forkName = `fork-${commitId.slice(0, 6)}`;
-                handleCreateBranch(forkName);
-                setTimeTravelIndex(null);
+                const c = commits.find((x) => x.id === commitId) || null;
+                setForkSourceCommit(c);
+                setIsForkDialogOpen(true);
               }}
+              onRevertCommit={handleRevertCommit}
             />
           </div>
         )}
@@ -1078,13 +1248,23 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         branch={branch}
       />
 
-      {/* 3-Way Merge dialog */}
+      {/* 3-Way Merge dialog with conflict resolution */}
       <MergeBranchDialog
         open={isMergeOpen}
         onOpenChange={setIsMergeOpen}
         branches={branches}
         currentBranch={branch}
+        documentId={documentId}
         onConfirmMerge={handleConfirmMerge}
+      />
+
+      {/* Fork branch from commit dialog */}
+      <ForkBranchDialog
+        open={isForkDialogOpen}
+        onOpenChange={setIsForkDialogOpen}
+        sourceCommit={forkSourceCommit}
+        existingBranches={branches}
+        onConfirmFork={handleConfirmFork}
       />
 
       {/* Meaningful Merkle Commit Dialog */}
