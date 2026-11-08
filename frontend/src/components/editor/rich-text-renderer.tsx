@@ -36,30 +36,36 @@ export function sanitizeInlineStyle(styleStr: string): string {
 
       if (!allowedProps.includes(prop)) return null;
 
+      // Normalize font-family double quotes or HTML entities to safe single quotes
+      let cleanVal = val.trim();
+      if (prop === "font-family") {
+        cleanVal = cleanVal.replace(/&quot;/g, "'").replace(/"/g, "'");
+      }
+
       // Reject characters that could break out of HTML attributes or tags
-      if (/["<>\\]/.test(val)) return null;
+      if (/["<>\\]/.test(cleanVal)) return null;
 
       // Reject script vectors and CSS injection functions
-      if (/javascript|vbscript|data:|expression|@import|url\s*\(/i.test(val)) return null;
+      if (/javascript|vbscript|data:|expression|@import|url\s*\(/i.test(cleanVal)) return null;
 
       // Property-specific strict validation
       if (prop === "font-size") {
-        if (!/^\d+(?:\.\d+)?(?:px|pt|em|rem|%)$/i.test(val)) return null;
+        if (!/^\d+(?:\.\d+)?(?:px|pt|em|rem|%)$/i.test(cleanVal)) return null;
       }
       if (prop === "text-align") {
-        if (!/^(?:left|center|right|justify)$/i.test(val)) return null;
+        if (!/^(?:left|center|right|justify)$/i.test(cleanVal)) return null;
       }
       if (prop === "color" || prop === "background-color") {
-        if (!/^(?:#[0-9a-f]{3,8}|rgba?\([0-9\s,./%]+\)|transparent|inherit|[a-z]+)$/i.test(val)) {
+        if (!/^(?:#[0-9a-f]{3,8}|rgba?\([0-9\s,./%]+\)|transparent|inherit|[a-z]+)$/i.test(cleanVal)) {
           return null;
         }
       }
       if (prop === "font-family") {
         // Allow alphanumeric font names with spaces, commas, hyphens and optional safe single quotes
-        if (!/^[a-zA-Z0-9\s,'\-_]+$/.test(val)) return null;
+        if (!/^[a-zA-Z0-9\s,'\-_]+$/.test(cleanVal)) return null;
       }
 
-      return `${prop}: ${val}`;
+      return `${prop}: ${cleanVal}`;
     })
     .filter(Boolean)
     .join("; ");

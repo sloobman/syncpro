@@ -9,21 +9,111 @@ export interface FontItem {
 
 export const BUILT_IN_FONTS: FontItem[] = [
   // Sans-Serif
-  { id: "inter", name: "Inter (Стандартный)", family: "Inter, sans-serif", category: "sans", sourceType: "system" },
-  { id: "roboto", name: "Roboto", family: "Roboto, sans-serif", category: "sans", sourceType: "google", fileUrl: "https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" },
-  { id: "montserrat", name: "Montserrat", family: "Montserrat, sans-serif", category: "sans", sourceType: "google", fileUrl: "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" },
-  { id: "open-sans", name: "Open Sans", family: "'Open Sans', sans-serif", category: "sans", sourceType: "google", fileUrl: "https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap" },
+  {
+    id: "inter",
+    name: "Inter (Стандартный)",
+    family: "Inter, system-ui, -apple-system, sans-serif",
+    category: "sans",
+    sourceType: "system",
+  },
+  {
+    id: "roboto",
+    name: "Roboto",
+    family: "Roboto, system-ui, -apple-system, sans-serif",
+    category: "sans",
+    sourceType: "google",
+    fileUrl: "https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap",
+  },
+  {
+    id: "montserrat",
+    name: "Montserrat",
+    family: "Montserrat, system-ui, -apple-system, sans-serif",
+    category: "sans",
+    sourceType: "google",
+    fileUrl: "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap",
+  },
+  {
+    id: "open-sans",
+    name: "Open Sans",
+    family: "'Open Sans', system-ui, -apple-system, sans-serif",
+    category: "sans",
+    sourceType: "google",
+    fileUrl: "https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&display=swap",
+  },
 
   // Serif
-  { id: "merriweather", name: "Merriweather", family: "Merriweather, serif", category: "serif", sourceType: "google", fileUrl: "https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap" },
-  { id: "playfair", name: "Playfair Display", family: "'Playfair Display', serif", category: "serif", sourceType: "google", fileUrl: "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&display=swap" },
-  { id: "lora", name: "Lora", family: "Lora, serif", category: "serif", sourceType: "google", fileUrl: "https://fonts.googleapis.com/css2?family=Lora:wght@400;600&display=swap" },
-  { id: "georgia", name: "Georgia", family: "Georgia, serif", category: "serif", sourceType: "system" },
+  {
+    id: "merriweather",
+    name: "Merriweather",
+    family: "Merriweather, Georgia, serif",
+    category: "serif",
+    sourceType: "google",
+    fileUrl: "https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&display=swap",
+  },
+  {
+    id: "playfair",
+    name: "Playfair Display",
+    family: "'Playfair Display', Georgia, serif",
+    category: "serif",
+    sourceType: "google",
+    fileUrl: "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&display=swap",
+  },
+  {
+    id: "lora",
+    name: "Lora",
+    family: "Lora, Georgia, serif",
+    category: "serif",
+    sourceType: "google",
+    fileUrl: "https://fonts.googleapis.com/css2?family=Lora:wght@400;600&display=swap",
+  },
+  {
+    id: "georgia",
+    name: "Georgia",
+    family: "Georgia, serif",
+    category: "serif",
+    sourceType: "system",
+  },
 
   // Monospace
-  { id: "jetbrains-mono", name: "JetBrains Mono", family: "'JetBrains Mono', monospace", category: "mono", sourceType: "google", fileUrl: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" },
-  { id: "fira-code", name: "Fira Code", family: "'Fira Code', monospace", category: "mono", sourceType: "google", fileUrl: "https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" },
+  {
+    id: "jetbrains-mono",
+    name: "JetBrains Mono",
+    family: "'JetBrains Mono', monospace",
+    category: "mono",
+    sourceType: "google",
+    fileUrl: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap",
+  },
+  {
+    id: "fira-code",
+    name: "Fira Code",
+    family: "'Fira Code', monospace",
+    category: "mono",
+    sourceType: "google",
+    fileUrl: "https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap",
+  },
 ];
+
+/**
+ * Normalizes a font family string for robust comparison.
+ * Extracts the primary font family name, strips quotes, and lowercases.
+ * e.g., "'Impact', sans-serif" -> "impact", "\"Open Sans\", sans-serif" -> "open sans"
+ */
+export function normalizeFontFamily(font: string): string {
+  if (!font) return "";
+  const first = font.split(",")[0].trim().replace(/['"]/g, "").toLowerCase();
+  return first;
+}
+
+/**
+ * Matches a font string to an item in allFonts by primary family name.
+ */
+export function matchFontFamily(font: string, allFonts: FontItem[]): string {
+  if (!font) return allFonts[0]?.family || "Inter, system-ui, -apple-system, sans-serif";
+  const norm = normalizeFontFamily(font);
+  const found = allFonts.find((f) => normalizeFontFamily(f.family) === norm);
+  if (found) return found.family;
+  return font;
+}
 
 export class FontManager {
   private static loadedFamilies = new Set<string>();

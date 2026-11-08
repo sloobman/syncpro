@@ -67,7 +67,7 @@ export function CustomFontDialog({
       const newFont: FontItem = {
         id: `custom_${data.font.family_name.toLowerCase().replace(/\s+/g, "_")}`,
         name: data.font.display_name,
-        family: `'${data.font.family_name}', sans-serif`,
+        family: `'${data.font.family_name}', system-ui, -apple-system, sans-serif`,
         category: "custom",
         sourceType: "google",
         fileUrl: data.font.file_url,
@@ -113,7 +113,7 @@ export function CustomFontDialog({
       const newFont: FontItem = {
         id: `custom_${fontData.family_name.toLowerCase().replace(/\s+/g, "_")}`,
         name: fontData.display_name,
-        family: `'${fontData.family_name}', sans-serif`,
+        family: `'${fontData.family_name}', system-ui, -apple-system, sans-serif`,
         category: "custom",
         sourceType: "custom_file",
         fileUrl: fontData.file_url,
