@@ -128,6 +128,11 @@ export class DocumentConverter {
         continue;
       }
 
+      if (line === "<!-- pagebreak -->" || line === "\\pagebreak" || line === "---pagebreak---") {
+        paragraphs.push(new Paragraph({ pageBreakBefore: true }));
+        continue;
+      }
+
       // Heading 1
       if (line.startsWith("# ")) {
         paragraphs.push(
@@ -265,6 +270,8 @@ export class DocumentConverter {
       const line = rawLine.trim();
       if (!line) {
         bodyContentXml += `<text:p/>`;
+      } else if (line === "<!-- pagebreak -->" || line === "\\pagebreak" || line === "---pagebreak---") {
+        bodyContentXml += `<text:p style:name="PageBreak"/>`;
       } else if (line.startsWith("# ")) {
         bodyContentXml += `<text:h text:outline-level="1">${this.escapeXml(line.slice(2))}</text:h>`;
       } else if (line.startsWith("## ")) {
