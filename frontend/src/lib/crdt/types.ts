@@ -16,7 +16,8 @@ export type BlockType =
   | 'code-block'
   | 'table'
   | 'image'
-  | 'divider';
+  | 'divider'
+  | 'page-break';
 
 export interface TextNode {
   readonly id: ID;
@@ -68,3 +69,5 @@ export type CRDTOperation =
   | { type: 'block-create'; op: BlockCreateOp }
   | { type: 'block-move'; op: MoveOp }
   | { type: 'block-delete'; op: BlockDeleteOp };
+
+export type Operation = CRDTOperation;

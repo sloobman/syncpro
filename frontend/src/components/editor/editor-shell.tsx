@@ -12,7 +12,9 @@ import { ForkBranchDialog } from "@/components/editor/fork-branch-dialog";
 import type { BranchInfo } from "@/components/editor/branch-graph-view";
 import { CommitDialog } from "@/components/editor/commit-dialog";
 import { DiffViewer } from "@/components/editor/diff-viewer";
-import { BlockEditorItem, applyFontSizeToSelection } from "@/components/editor/block-editor-item";
+import { applyFontSizeToSelection, applyFontFamilyToSelection, htmlToMarkdown } from "@/components/editor/block-editor-item";
+import { PagedCanvas } from "@/components/editor/paged-canvas";
+import { DEFAULT_PAGE_LAYOUT, type PageLayoutConfig } from "@/lib/types/page-layout";
 import { DocumentConverter } from "@/lib/documents/document-converter";
 import { FontManager } from "@/lib/fonts/font-manager";
 import { CRDTDocument } from "@/lib/crdt/crdt-doc";
@@ -91,6 +93,8 @@ function initCRDTFromMarkdown(doc: CRDTDocument, markdownText: string) {
       chunks.push({ type: "todo", content: trimmed });
     } else if (trimmed.startsWith("![") && trimmed.includes("](") && trimmed.endsWith(")")) {
       chunks.push({ type: "image", content: trimmed });
+    } else if (trimmed === "<!-- pagebreak -->" || trimmed === "\\pagebreak" || trimmed === "---pagebreak---") {
+      chunks.push({ type: "page-break", content: "" });
     } else if (trimmed === "---" || trimmed === "***" || trimmed === "___") {
       chunks.push({ type: "divider", content: "" });
     } else if (trimmed.startsWith("• ") || trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
@@ -133,6 +137,7 @@ function serializeCRDTToMarkdown(doc: CRDTDocument): string {
       if (b.blockType === "heading2") return `## ${text}`;
       if (b.blockType === "heading3") return `### ${text}`;
       if (b.blockType === "quote") return text.startsWith(">") ? text : `> ${text}`;
+      if (b.blockType === "page-break") return "<!-- pagebreak -->";
       if (b.blockType === "divider") return "---";
       if (b.blockType === "code-block") return `\`\`\`\n${text}\n\`\`\``;
       if (b.blockType === "bullet-list" || b.blockType === "list-item") return `• ${text}`;
@@ -160,6 +165,32 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const [forkSourceCommit, setForkSourceCommit] = useState<MerkleCommit | null>(null);
   const [documentFont, setDocumentFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
   const [activeFont, setActiveFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
+  const [activeSize, setActiveSize] = useState<string>("16px");
+
+  const [pageLayout, setPageLayout] = useState<PageLayoutConfig>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(`syncpro_layout_${documentId}`);
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return DEFAULT_PAGE_LAYOUT;
+  });
+
+  const handlePageLayoutChange = useCallback(
+    (updates: Partial<PageLayoutConfig>) => {
+      setPageLayout((prev) => {
+        const next = { ...prev, ...updates };
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem(`syncpro_layout_${documentId}`, JSON.stringify(next));
+          } catch {}
+        }
+        return next;
+      });
+    },
+    [documentId]
+  );
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -173,9 +204,12 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       if (node && node instanceof HTMLElement) {
         const canvas = node.closest(".editor-canvas");
         if (canvas) {
-          const computed = window.getComputedStyle(node).fontFamily;
-          if (computed) {
-            setActiveFont(computed);
+          const computed = window.getComputedStyle(node);
+          if (computed.fontFamily) {
+            setActiveFont(computed.fontFamily);
+          }
+          if (computed.fontSize) {
+            setActiveSize(computed.fontSize);
           }
         }
       }
@@ -523,6 +557,15 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     [canEdit, refreshBlocks, triggerAutoSave]
   );
 
+  const handleSmartClick = useCallback(
+    (_pageIndex: number, align: "left" | "center" | "right") => {
+      if (!canEdit) return;
+      const initialStyle = align !== "left" ? `<div style="text-align: ${align}"><br></div>` : "";
+      handleAddBlock("paragraph", initialStyle);
+    },
+    [canEdit, handleAddBlock]
+  );
+
   // Change existing block type
   const handleChangeBlockType = useCallback(
     (blockId: ID, newType: BlockType) => {
@@ -549,30 +592,63 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   );
 
   // Typography Toolbar Handlers
-  const handleFontChange = useCallback((fontFamily: string) => {
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
-      try {
-        document.execCommand("styleWithCSS", false, "true");
-        document.execCommand("fontName", false, fontFamily);
-      } catch {}
-    } else {
-      setDocumentFont(fontFamily);
-    }
-  }, []);
+  const handleFontChange = useCallback(
+    (fontFamily: string) => {
+      setActiveFont(fontFamily);
+      const selection = window.getSelection();
+      const hasTextSelected = selection && selection.rangeCount > 0 && !selection.isCollapsed;
 
-  const handleSizeChange = useCallback((size: string) => {
-    const applied = applyFontSizeToSelection(size);
-    if (!applied && activeBlockId) {
-      const el = document.getElementById(`block-${activeBlockId}`);
-      if (el) {
-        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
-        if (editable) {
-          editable.style.fontSize = size;
+      if (hasTextSelected) {
+        const applied = applyFontFamilyToSelection(fontFamily);
+        if (!applied) {
+          try {
+            document.execCommand("styleWithCSS", false, "true");
+            document.execCommand("fontName", false, fontFamily);
+          } catch {}
+        }
+        if (activeBlockId) {
+          const el = document.getElementById(`block-${activeBlockId}`);
+          if (el) {
+            const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+            if (editable) {
+              const newHtml = editable.innerHTML;
+              const newMarkdown = htmlToMarkdown(newHtml);
+              const foundBlock = blocksState.find((b) => formatID(b.id) === activeBlockId);
+              if (foundBlock) {
+                handleTextChange(foundBlock.id, newMarkdown);
+              }
+            }
+          }
+        }
+      } else {
+        setDocumentFont(fontFamily);
+      }
+    },
+    [activeBlockId, blocksState, handleTextChange]
+  );
+
+  const handleSizeChange = useCallback(
+    (size: string) => {
+      setActiveSize(size);
+      const applied = applyFontSizeToSelection(size);
+      if (!applied && activeBlockId) {
+        const el = document.getElementById(`block-${activeBlockId}`);
+        if (el) {
+          const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+          if (editable) {
+            editable.style.fontSize = size;
+            const newHtml = editable.innerHTML;
+            const newMarkdown = htmlToMarkdown(newHtml);
+            const foundBlock = blocksState.find((b) => formatID(b.id) === activeBlockId);
+            if (foundBlock) {
+              handleTextChange(foundBlock.id, newMarkdown);
+            }
+          }
         }
       }
-    }
-  }, [activeBlockId]);
+    },
+    [activeBlockId, blocksState, handleTextChange]
+  );
 
   const handleColorChange = useCallback((color: string) => {
     try {
@@ -1134,13 +1210,6 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     return Object.values(blockTexts).join("\n\n") || currentDiffBase;
   }, [blockTexts, currentDiffBase]);
 
-  const canvasWidthClass =
-    canvasWidth === "narrow"
-      ? "max-w-[700px]"
-      : canvasWidth === "wide"
-      ? "max-w-[1100px]"
-      : "max-w-[850px]";
-
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-background">
       <EditorTopbar
@@ -1179,20 +1248,24 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         onAction={handleToolbarAction}
         disabled={!canEdit}
         currentFont={activeFont}
+        currentSize={activeSize}
         onFontChange={handleFontChange}
         onSizeChange={handleSizeChange}
         onColorChange={handleColorChange}
         onHighlightChange={handleHighlightChange}
         onAlignChange={handleAlignChange}
+        pageConfig={pageLayout}
+        onChangePageConfig={handlePageLayoutChange}
+        onInsertPageBreak={() => handleAddBlock("page-break")}
       />
 
       {/* Main editor area */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        {/* Document canvas */}
-        <div className="flex-1 overflow-y-auto bg-muted/20 p-4 sm:p-8 flex flex-col items-center">
+        {/* Paged Document Canvas */}
+        <div className="flex-1 overflow-hidden flex flex-col relative">
           {/* Diff panel overlay if open */}
           {isDiffOpen && (
-            <div className={`w-full ${canvasWidthClass} mb-6`}>
+            <div className="w-full max-w-4xl mx-auto p-4 z-20">
               <div className="flex justify-between items-center mb-2">
                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Анализ расхождений веток (LCA Diff)
@@ -1215,37 +1288,46 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             </div>
           )}
 
-          {/* Active document page */}
-          <div
-            className={`w-full ${canvasWidthClass} min-h-[1050px] bg-card border border-border shadow-xs rounded-2xl p-8 sm:p-14 relative text-foreground space-y-4 transition-all duration-200 editor-canvas`}
-            style={{ fontFamily: documentFont }}
-          >
-            {blocksState.map((block) => {
-              const bKey = formatID(block.id);
-              const text = blockTexts[bKey] ?? "";
-
-              return (
-                <div key={bKey} id={`block-${bKey}`}>
-                  <BlockEditorItem
-                    block={block}
-                    text={text}
-                    canEdit={canEdit}
-                    isActive={activeBlockId === bKey}
-                    onFocus={() => setActiveBlockId(bKey)}
-                    onChangeText={(newText) => handleTextChange(block.id, newText)}
-                    onChangeType={(newType) => handleChangeBlockType(block.id, newType)}
-                    onDelete={() => handleDeleteBlock(block.id)}
-                    onInsertAfter={(type) => handleAddBlock(type, undefined, block.id)}
-                    onEnter={() => handleAddBlock("paragraph", undefined, block.id)}
-                    onBackspaceEmpty={() => handleDeleteBlock(block.id)}
-                    documentId={documentId}
-                  />
-                </div>
-              );
-            })}
-
-            
-          </div>
+          <PagedCanvas
+            blocks={blocksState}
+            blockTexts={blockTexts}
+            pageConfig={pageLayout}
+            canEdit={canEdit}
+            activeBlockId={activeBlockId}
+            documentFont={documentFont}
+            documentId={documentId}
+            onFocusBlock={(bKey) => setActiveBlockId(bKey)}
+            onChangeText={(bKey, newText) => {
+              const b = blocksState.find((x) => formatID(x.id) === bKey);
+              if (b) handleTextChange(b.id, newText);
+            }}
+            onChangeType={(bKey, newType) => {
+              const b = blocksState.find((x) => formatID(x.id) === bKey);
+              if (b) handleChangeBlockType(b.id, newType);
+            }}
+            onDeleteBlock={(bKey) => {
+              const b = blocksState.find((x) => formatID(x.id) === bKey);
+              if (b) handleDeleteBlock(b.id);
+            }}
+            onInsertAfter={(bKey, type) => {
+              const b = blocksState.find((x) => formatID(x.id) === bKey);
+              handleAddBlock(type || "paragraph", undefined, b ? b.id : null);
+            }}
+            onEnter={(bKey) => {
+              const b = blocksState.find((x) => formatID(x.id) === bKey);
+              handleAddBlock("paragraph", undefined, b ? b.id : null);
+            }}
+            onBackspaceEmpty={(bKey) => {
+              const b = blocksState.find((x) => formatID(x.id) === bKey);
+              if (b) handleDeleteBlock(b.id);
+            }}
+            onSmartClick={handleSmartClick}
+            onDeletePageBreak={(breakId) => {
+              const b = blocksState.find((x) => formatID(x.id) === breakId);
+              if (b) handleDeleteBlock(b.id);
+            }}
+            onAddPage={() => handleAddBlock("page-break")}
+          />
         </div>
 
         {/* Right collapsible sidebar */}
@@ -1342,6 +1424,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         charCount={stats.chars}
         activeUsers={onlineUsers.length || 1}
         branch={branch}
+        pageInfo={`${pageLayout.format.toUpperCase()} • ${pageLayout.orientation === "portrait" ? "Книжная" : "Альбомная"}`}
       />
 
       {/* 3-Way Merge dialog with conflict resolution */}
