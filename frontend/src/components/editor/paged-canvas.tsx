@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useMemo } from "react";
-import type { BlockNode, BlockType } from "@/lib/crdt/types";
+import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
 import { formatID } from "@/lib/crdt/id";
 import { BlockEditorItem } from "./block-editor-item";
 import type { PageLayoutConfig } from "@/lib/types/page-layout";
@@ -28,7 +28,7 @@ export interface PagedCanvasProps {
   onInsertAfter: (id: string, type?: BlockType) => void;
   onEnter: (id: string) => void;
   onBackspaceEmpty: (id: string) => void;
-  onSmartClick?: (pageIndex: number, align: "left" | "center" | "right") => void;
+  onSmartClick?: (pageIndex: number, align: "left" | "center" | "right", afterBlockId?: ID | null) => void;
   onDeletePageBreak?: (breakBlockId: string) => void;
   onAddPage?: () => void;
 }
@@ -144,12 +144,23 @@ export function PagedCanvas({
    * Handle Smart Click (Click and Type) on the page sheet
    */
   const handleSheetClick = (e: React.MouseEvent<HTMLDivElement>, pageIndex: number) => {
-    // Only trigger if clicking on the page sheet itself or empty area (not buttons or contentEditable)
+    // Only trigger if clicking on the page sheet itself or empty area (not buttons, inputs, controls, or existing blocks)
     const target = e.target as HTMLElement;
     if (
       target.closest('button') ||
+      target.closest('input') ||
+      target.closest('textarea') ||
+      target.closest('select') ||
       target.closest('[contenteditable="true"]') ||
-      target.closest('.editor-canvas-ui')
+      target.closest('.editor-canvas-ui') ||
+      target.closest('.editor-ui-control') ||
+      target.closest('[id^="block-"]') ||
+      target.closest('[data-block-id]') ||
+      target.closest('img') ||
+      target.closest('table') ||
+      target.closest('pre') ||
+      target.closest('hr') ||
+      target.closest('a')
     ) {
       return;
     }
@@ -169,7 +180,12 @@ export function PagedCanvas({
       align = "center";
     }
 
-    onSmartClick(pageIndex, align);
+    const thisPage = pages[pageIndex];
+    const targetAfterId = thisPage && thisPage.blocks.length > 0
+      ? thisPage.blocks[thisPage.blocks.length - 1].id
+      : null;
+
+    onSmartClick(pageIndex, align, targetAfterId);
   };
 
   return (
@@ -223,7 +239,7 @@ export function PagedCanvas({
               <div
                 id={`document-page-${idx}`}
                 onClick={(e) => handleSheetClick(e, idx)}
-                className="bg-card text-foreground shadow-md hover:shadow-lg transition-all border border-border/70 rounded-xs relative editor-canvas cursor-text"
+                className="bg-card text-foreground shadow-md hover:shadow-lg transition-all border border-border/70 rounded-xs relative editor-canvas cursor-text break-words [overflow-wrap:anywhere] overflow-hidden"
                 style={{
                   width: `${dim.widthPx}px`,
                   minHeight: `${dim.heightPx}px`,
@@ -237,7 +253,7 @@ export function PagedCanvas({
                 }}
               >
                 {/* Content Blocks for this Page */}
-                <div className="space-y-3">
+                <div className="space-y-3 w-full min-w-0 max-w-full">
                   {page.blocks.map((block) => {
                     const bKey = formatID(block.id);
                     const text = blockTexts[bKey] ?? "";

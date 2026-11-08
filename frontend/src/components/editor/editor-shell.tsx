@@ -18,7 +18,7 @@ import { DEFAULT_PAGE_LAYOUT, type PageLayoutConfig } from "@/lib/types/page-lay
 import { DocumentConverter } from "@/lib/documents/document-converter";
 import { FontManager } from "@/lib/fonts/font-manager";
 import { CRDTDocument } from "@/lib/crdt/crdt-doc";
-import { formatID } from "@/lib/crdt/id";
+import { formatID, parseID } from "@/lib/crdt/id";
 import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { X } from "lucide-react";
@@ -551,18 +551,31 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       setActiveBlockId(formatID(block.id));
       refreshBlocks();
       triggerAutoSave();
+      return block;
     },
     [canEdit, refreshBlocks, triggerAutoSave]
   );
 
   const handleSmartClick = useCallback(
-    (_pageIndex: number, align: "left" | "center" | "right") => {
+    (_pageIndex: number, align: "left" | "center" | "right", afterBlockId?: ID | null) => {
       if (!canEdit) return;
       const initialStyle = align !== "left" ? `<div style="text-align: ${align}"><br></div>` : "";
-      handleAddBlock("paragraph", initialStyle);
+      handleAddBlock("paragraph", initialStyle, afterBlockId);
     },
     [canEdit, handleAddBlock]
   );
+
+  const handleAddPage = useCallback(() => {
+    const doc = docRef.current;
+    if (!doc || !canEdit) return;
+    const roots = doc.tree.getRootBlocks();
+    const lastBlock = roots.length > 0 ? roots[roots.length - 1] : null;
+    const pageBreak = doc.insertBlockAfter(lastBlock ? lastBlock.id : null, "page-break");
+    const newParagraph = doc.insertBlockAfter(pageBreak.id, "paragraph");
+    setActiveBlockId(formatID(newParagraph.id));
+    refreshBlocks();
+    triggerAutoSave();
+  }, [canEdit, refreshBlocks, triggerAutoSave]);
 
   // Change existing block type
   const handleChangeBlockType = useCallback(
@@ -1301,7 +1314,18 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         onAlignChange={handleAlignChange}
         pageConfig={pageLayout}
         onChangePageConfig={handlePageLayoutChange}
-        onInsertPageBreak={() => handleAddBlock("page-break")}
+        onInsertPageBreak={() => {
+          if (!canEdit) return;
+          if (activeBlockId) {
+            const currentBlockId = parseID(activeBlockId);
+            const pb = handleAddBlock("page-break", undefined, currentBlockId);
+            if (pb) {
+              handleAddBlock("paragraph", undefined, pb.id);
+            }
+          } else {
+            handleAddPage();
+          }
+        }}
         currentLineHeight={pageLayout.lineHeight || 1.5}
         currentParagraphSpacing={pageLayout.paragraphSpacing ?? 8}
         currentLetterSpacing={pageLayout.letterSpacing || "normal"}
@@ -1376,7 +1400,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
               const b = blocksState.find((x) => formatID(x.id) === breakId);
               if (b) handleDeleteBlock(b.id);
             }}
-            onAddPage={() => handleAddBlock("page-break")}
+            onAddPage={handleAddPage}
           />
         </div>
 

@@ -276,5 +276,5 @@ export function RichTextRenderer({ content, className = "", placeholder }: RichT
     );
   }
 
-  return <span className={className}>{parts}</span>;
+  return <span className={`break-words [overflow-wrap:anywhere] [word-break:break-word] ${className || ""}`}>{parts}</span>;
 }

@@ -74,6 +74,7 @@ export class CRDTDocument {
 
   /**
    * Inserts a new block after a reference block, maintaining deterministic fractional indexing.
+   * If afterBlockId is null or not found, appends the new block at the end of the document.
    */
   insertBlockAfter(afterBlockId: ID | null, blockType: BlockType = 'paragraph', initialText = ''): BlockNode {
     const roots = this.tree.getRootBlocks();
@@ -87,12 +88,31 @@ export class CRDTDocument {
         if (idx + 1 < roots.length) {
           nextKey = roots[idx + 1].orderKey;
         }
+      } else if (roots.length > 0) {
+        // Fallback if afterBlockId does not exist: append to the end
+        prevKey = roots[roots.length - 1].orderKey;
       }
     } else if (roots.length > 0) {
-      nextKey = roots[0].orderKey;
+      // Default when no target block specified: append to the end of the document
+      prevKey = roots[roots.length - 1].orderKey;
+      nextKey = null;
     }
 
     const orderKey = generateOrderKeyBetween(prevKey, nextKey);
+    const block = this.createBlock(null, blockType, orderKey);
+    if (initialText) {
+      this.insertText(block.id, 0, initialText);
+    }
+    return block;
+  }
+
+  /**
+   * Prepends a block at the very top of the document (before block 0).
+   */
+  prependBlock(blockType: BlockType = 'paragraph', initialText = ''): BlockNode {
+    const roots = this.tree.getRootBlocks();
+    const nextKey = roots.length > 0 ? roots[0].orderKey : null;
+    const orderKey = generateOrderKeyBetween(null, nextKey);
     const block = this.createBlock(null, blockType, orderKey);
     if (initialText) {
       this.insertText(block.id, 0, initialText);

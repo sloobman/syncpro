@@ -796,7 +796,15 @@ export function BlockEditorItem({
   // 0. RENDER PAGE BREAK BLOCK
   if (block.blockType === "page-break") {
     return (
-      <div className="group relative my-6 flex items-center select-none" onFocus={onFocus} data-page-break="true">
+      <div
+        className="group relative my-6 flex items-center select-none"
+        onFocus={onFocus}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+        }}
+        data-page-break="true"
+      >
         <div className="absolute -left-7 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
@@ -825,7 +833,14 @@ export function BlockEditorItem({
   // 1. RENDER DIVIDER BLOCK
   if (block.blockType === "divider") {
     return (
-      <div className="group relative my-4 flex items-center" onFocus={onFocus}>
+      <div
+        className="group relative my-4 flex items-center"
+        onFocus={onFocus}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+        }}
+      >
         <div className="absolute -left-7 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
@@ -889,7 +904,14 @@ export function BlockEditorItem({
     };
 
     return (
-      <div className="group relative my-4 space-y-2" onFocus={onFocus}>
+      <div
+        className="group relative my-4 space-y-2"
+        onFocus={onFocus}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+        }}
+      >
         <div className="absolute -left-7 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
@@ -1123,7 +1145,14 @@ export function BlockEditorItem({
     };
 
     return (
-      <div className="group relative my-4" onFocus={onFocus}>
+      <div
+        className="group relative my-4"
+        onFocus={onFocus}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+        }}
+      >
         <div className="absolute -left-7 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
@@ -1249,12 +1278,22 @@ export function BlockEditorItem({
               </div>
             )}
 
-            <div className="relative p-2 rounded-2xl bg-muted/20 border border-border/80 flex flex-col items-center">
+            <div
+              className="relative p-2 rounded-2xl bg-muted/20 border border-border/80 flex flex-col items-center cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFocus?.();
+              }}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={url}
                 alt={caption || "Изображение"}
-                className="max-h-[560px] w-full rounded-xl object-contain shadow-xs transition-all"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFocus?.();
+                }}
+                className="max-h-[560px] w-full rounded-xl object-contain shadow-xs transition-all cursor-pointer"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).src =
                     "https://placehold.co/600x400/e2e8f0/475569?text=Изображение+не+найдено";
@@ -1395,7 +1434,14 @@ export function BlockEditorItem({
     };
 
     return (
-      <div className="group relative my-3" onFocus={onFocus}>
+      <div
+        className="group relative my-3"
+        onFocus={onFocus}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+        }}
+      >
         <div className="absolute -left-7 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center">
           {blockTypeDropdown}
         </div>
@@ -1420,12 +1466,12 @@ export function BlockEditorItem({
                 ref={textareaRef}
                 value={text}
                 onChange={(e) => onChangeText(e.target.value)}
-                className="w-full bg-transparent font-mono text-xs sm:text-sm text-zinc-200 focus:outline-none resize-none leading-relaxed"
+                className="w-full bg-transparent font-mono text-xs sm:text-sm text-zinc-200 focus:outline-none resize-none leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-all]"
                 placeholder="// Вставьте код..."
                 rows={Math.max(3, text.split("\n").length)}
               />
             ) : (
-              <pre className="font-mono text-xs sm:text-sm leading-relaxed whitespace-pre-wrap text-zinc-200">
+              <pre className="font-mono text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-all] text-zinc-200">
                 {text}
               </pre>
             )}
@@ -1459,7 +1505,7 @@ export function BlockEditorItem({
           />
         </div>
 
-        <div className="flex-1 relative">
+        <div className="flex-1 min-w-0 relative">
           {floatingFormattingBar}
 
           {canEdit ? (
@@ -1469,12 +1515,12 @@ export function BlockEditorItem({
               suppressContentEditableWarning
               onInput={handleContentInput}
               onKeyDown={handleEditableKeyDown}
-              className={`w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base py-0.5 leading-relaxed min-h-[24px] ${
+              className={`w-full max-w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base py-0.5 leading-relaxed min-h-[24px] break-words [overflow-wrap:anywhere] [word-break:break-word] ${
                 done ? "line-through text-muted-foreground" : "text-foreground font-normal"
               }`}
             />
           ) : (
-            <p className={`text-sm sm:text-base leading-relaxed ${done ? "line-through text-muted-foreground" : "text-foreground"}`}>
+            <p className={`text-sm sm:text-base leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word] ${done ? "line-through text-muted-foreground" : "text-foreground"}`}>
               <RichTextRenderer content={task} />
             </p>
           )}
@@ -1507,7 +1553,7 @@ export function BlockEditorItem({
           {floatingFormattingBar}
           <div className="flex items-start gap-2">
             <Quote className="h-4 w-4 text-primary shrink-0 mt-0.5 opacity-80" />
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               {canEdit ? (
                 <div
                   ref={contentRef}
@@ -1515,10 +1561,10 @@ export function BlockEditorItem({
                   suppressContentEditableWarning
                   onInput={handleContentInput}
                   onKeyDown={handleEditableKeyDown}
-                  className="w-full bg-transparent border-0 focus:outline-none italic text-sm sm:text-base text-foreground leading-relaxed font-serif min-h-[30px]"
+                  className="w-full max-w-full bg-transparent border-0 focus:outline-none italic text-sm sm:text-base text-foreground leading-relaxed font-serif min-h-[30px] break-words [overflow-wrap:anywhere] [word-break:break-word]"
                 />
               ) : (
-                <p className="italic text-sm sm:text-base text-foreground font-serif leading-relaxed">
+                <p className="italic text-sm sm:text-base text-foreground font-serif leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word]">
                   <RichTextRenderer content={text} />
                 </p>
               )}
@@ -1557,7 +1603,7 @@ export function BlockEditorItem({
           )}
         </div>
 
-        <div className="flex-1 relative">
+        <div className="flex-1 min-w-0 relative">
           {floatingFormattingBar}
           {canEdit ? (
             <div
@@ -1566,10 +1612,10 @@ export function BlockEditorItem({
               suppressContentEditableWarning
               onInput={handleContentInput}
               onKeyDown={handleEditableKeyDown}
-              className="w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base text-foreground py-0.5 leading-relaxed font-normal min-h-[24px]"
+              className="w-full max-w-full bg-transparent border-0 focus:outline-none text-sm sm:text-base text-foreground py-0.5 leading-relaxed font-normal min-h-[24px] break-words [overflow-wrap:anywhere] [word-break:break-word]"
             />
           ) : (
-            <p className="text-sm sm:text-base leading-relaxed text-foreground">
+            <p className="text-sm sm:text-base leading-relaxed text-foreground break-words [overflow-wrap:anywhere] [word-break:break-word]">
               <RichTextRenderer content={text} />
             </p>
           )}
@@ -1595,12 +1641,12 @@ export function BlockEditorItem({
   const isH3 = block.blockType === "heading3";
 
   const typographyClass = isH1
-    ? "text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground"
+    ? "text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground break-words [overflow-wrap:anywhere] [word-break:break-word]"
     : isH2
-    ? "text-xl sm:text-2xl font-bold tracking-tight text-foreground"
+    ? "text-xl sm:text-2xl font-bold tracking-tight text-foreground break-words [overflow-wrap:anywhere] [word-break:break-word]"
     : isH3
-    ? "text-lg sm:text-xl font-semibold tracking-tight text-foreground"
-    : "text-sm sm:text-base text-foreground/90 font-normal leading-relaxed";
+    ? "text-lg sm:text-xl font-semibold tracking-tight text-foreground break-words [overflow-wrap:anywhere] [word-break:break-word]"
+    : "text-sm sm:text-base text-foreground/90 font-normal leading-relaxed break-words [overflow-wrap:anywhere] [word-break:break-word]";
 
   return (
     <div className="group relative flex items-start gap-2.5 my-1.5" onFocus={onFocus}>
@@ -1609,7 +1655,7 @@ export function BlockEditorItem({
         {blockTypeDropdown}
       </div>
 
-      <div className="flex-1 relative">
+      <div className="flex-1 min-w-0 relative">
         {floatingFormattingBar}
 
         {canEdit ? (
@@ -1619,7 +1665,7 @@ export function BlockEditorItem({
             suppressContentEditableWarning
             onInput={handleContentInput}
             onKeyDown={handleEditableKeyDown}
-            className={`w-full bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary/80 focus:outline-none py-1 min-h-[28px] ${typographyClass}`}
+            className={`w-full max-w-full bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary/80 focus:outline-none py-1 min-h-[28px] ${typographyClass}`}
           />
         ) : (
           <div className={`py-1 ${typographyClass}`}>
