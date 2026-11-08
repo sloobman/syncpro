@@ -7,29 +7,6 @@ import { getUserFromRequest } from "@/lib/auth/jwt";
 import { WorkspaceRepository } from "@/lib/db/workspace-repository";
 import { NotificationRepository } from "@/lib/db/notification-repository";
 
-function getFallbackCommits(documentId: string): MerkleCommit[] {
-  return [
-    {
-      id: "c000000000000000000000000000000000000000000000000000000000000001",
-      documentId,
-      parents: [],
-      deltaSha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      crdtDeltaStoragePath: `deltas/${documentId}/c000000000000000000000000000000000000000000000000000000000000001.bin`,
-      snapshotStoragePath: `snapshots/${documentId}/c000000000000000000000000000000000000000000000000000000000000001.snap.bin`,
-      stateVector: { 0: 0 },
-      message: "Начальная инициализация документа SyncPro",
-      author: {
-        userId: "system",
-        name: "SyncPro Core Engine",
-        avatarUrl: null,
-      },
-      timestamp: 1714000000000,
-      branch: "main",
-      content: null,
-    },
-  ];
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -58,15 +35,28 @@ export async function GET(
         source: "postgres",
       });
     }
+
+    // Auto-migrate: create real initial commit in PostgreSQL from document content
+    const initial = await MerkleDAGRepository.createInitialCommit(
+      id,
+      doc.document.createdBy || user.id,
+      doc.content || "",
+      user.name || "Автор документа"
+    );
+
+    return NextResponse.json({
+      documentId: id,
+      commits: [initial],
+      source: "postgres",
+    });
   } catch (dbErr) {
     console.warn(`[Commits API] PostgreSQL read fallback for ${id}:`, (dbErr as Error).message);
+    return NextResponse.json({
+      documentId: id,
+      commits: [],
+      error: "Ошибка получения коммитов",
+    }, { status: 500 });
   }
-
-  return NextResponse.json({
-    documentId: id,
-    commits: getFallbackCommits(id),
-    source: "memory_fallback",
-  });
 }
 
 export async function POST(
@@ -155,4 +145,36 @@ export async function POST(
     success: true,
     commit: newCommit,
   });
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = getUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const canEdit = await WorkspaceRepository.canUserEditDocument(id, user.id);
+  if (!canEdit) {
+    return NextResponse.json(
+      { error: "Доступ запрещен. У вас права только на чтение (Читатель)" },
+      { status: 403 }
+    );
+  }
+
+  const { searchParams } = new URL(request.url);
+  const commitId = searchParams.get("commitId");
+  if (!commitId) {
+    return NextResponse.json({ error: "commitId обязателен" }, { status: 400 });
+  }
+
+  try {
+    const result = await MerkleDAGRepository.deleteCommit(id, commitId);
+    return NextResponse.json(result);
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+  }
 }

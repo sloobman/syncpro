@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { BranchGraphView } from "@/components/editor/branch-graph-view";
+import { BranchGraphView, type BranchInfo } from "@/components/editor/branch-graph-view";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
 
@@ -40,11 +40,17 @@ interface EditorSidebarProps {
   documentId?: string;
   commits?: MerkleCommit[];
   currentCommitId?: string;
+  currentBranch?: string;
+  branches?: BranchInfo[];
   headings?: HeadingItem[];
   onSelectHeading?: (id: string) => void;
   onSelectCommit?: (id: string) => void;
+  onForkBranch?: (commitId: string) => void;
+  onRevertCommit?: (commitId: string) => void;
+  onDeleteCommit?: (commitId: string) => void;
   onOpenMergeDialog?: () => void;
   onOpenDiffDialog?: () => void;
+  canEdit?: boolean;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -64,11 +70,17 @@ export function EditorSidebar({
   documentId,
   commits = [],
   currentCommitId = "",
+  currentBranch = "main",
+  branches = [],
   headings = [],
   onSelectHeading,
   onSelectCommit = () => {},
+  onForkBranch,
+  onRevertCommit,
+  onDeleteCommit,
   onOpenMergeDialog,
   onOpenDiffDialog,
+  canEdit = true,
 }: EditorSidebarProps) {
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [commentText, setCommentText] = useState("");
@@ -331,7 +343,13 @@ export function EditorSidebar({
             <BranchGraphView
               commits={commits}
               currentCommitId={currentCommitId}
+              currentBranch={currentBranch}
+              branches={branches}
               onSelectCommit={onSelectCommit}
+              onForkBranch={onForkBranch}
+              onRevertCommit={onRevertCommit}
+              onDeleteCommit={onDeleteCommit}
+              canEdit={canEdit}
             />
           </ScrollArea>
         </TabsContent>
