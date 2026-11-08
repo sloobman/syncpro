@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Bold,
   Italic,
@@ -41,7 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { BUILT_IN_FONTS, type FontItem } from "@/lib/fonts/font-manager";
+import { BUILT_IN_FONTS, type FontItem, normalizeFontFamily, matchFontFamily, FontManager } from "@/lib/fonts/font-manager";
 import { CustomFontDialog } from "@/components/editor/custom-font-dialog";
 
 export interface EditorToolbarProps {
@@ -103,7 +103,73 @@ export function EditorToolbar({
   const [customFonts, setCustomFonts] = useState<FontItem[]>([]);
   const [isFontDialogOpen, setIsFontDialogOpen] = useState(false);
   const [selectedColor, setSelectedColor] = useState<string>("inherit");
-  const [selectedHighlight, setSelectedHighlight] = useState<string>("transparent");
+    const [selectedHighlight, setSelectedHighlight] = useState<string>("transparent");
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadWorkspaceFonts() {
+      try {
+        const url = workspaceId ? `/api/fonts?workspaceId=${encodeURIComponent(workspaceId)}` : "/api/fonts";
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (isMounted && Array.isArray(data.fonts)) {
+          const items: FontItem[] = data.fonts.map((f: {
+            id?: string;
+            family_name: string;
+            display_name?: string;
+            source_type: "google" | "custom_file" | "system";
+            file_url?: string;
+          }) => ({
+            id: f.id || `custom_${f.family_name.toLowerCase().replace(/\s+/g, "_")}`,
+            name: f.display_name || f.family_name,
+            family: f.source_type === "google"
+              ? `${f.family_name}, system-ui, -apple-system, sans-serif`
+              : `'${f.family_name}', system-ui, -apple-system, sans-serif`,
+            category: "custom",
+            sourceType: f.source_type,
+            fileUrl: f.file_url,
+          }));
+          items.forEach((item) => FontManager.loadFont(item));
+          setCustomFonts((prev) => {
+            const ids = new Set(prev.map((p) => p.id));
+            const merged = [...prev];
+            for (const item of items) {
+              if (!ids.has(item.id)) {
+                merged.push(item);
+                ids.add(item.id);
+              }
+            }
+            return merged;
+          });
+        }
+      } catch {}
+    }
+    loadWorkspaceFonts();
+    return () => {
+      isMounted = false;
+    };
+  }, [workspaceId]);
+
+  const allFonts = useMemo(() => {
+    const list = [...BUILT_IN_FONTS, ...customFonts];
+    const norm = normalizeFontFamily(currentFont);
+    if (norm && !list.some((f) => normalizeFontFamily(f.family) === norm)) {
+      const rawName = currentFont.split(",")[0].replace(/['"]/g, "").trim();
+      list.push({
+        id: `detected_${norm}`,
+        name: rawName,
+        family: currentFont,
+        category: "custom",
+        sourceType: "system",
+      });
+    }
+    return list;
+  }, [customFonts, currentFont]);
+
+  const matchedFontValue = useMemo(() => {
+    return matchFontFamily(currentFont, allFonts);
+  }, [currentFont, allFonts]);
 
   if (disabled) {
     return (
@@ -175,7 +241,7 @@ export function EditorToolbar({
     }
   };
 
-  const allFonts = [...BUILT_IN_FONTS, ...customFonts];
+
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -216,7 +282,7 @@ export function EditorToolbar({
 
         {/* Font Family Selector */}
         <div className="flex items-center shrink-0">
-          <Select value={currentFont} onValueChange={handleFontSelect}>
+          <Select value={matchedFontValue} onValueChange={handleFontSelect}>
             <SelectTrigger
               className="h-7 text-xs w-[130px] sm:w-[145px] gap-1 px-2 border-border/70 hover:border-border font-medium cursor-pointer"
               onMouseDown={preventBlur}

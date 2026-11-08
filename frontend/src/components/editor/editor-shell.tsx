@@ -19,7 +19,7 @@ import { CRDTDocument } from "@/lib/crdt/crdt-doc";
 import { formatID } from "@/lib/crdt/id";
 import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
-import { Plus, X, Heading1, Heading2, Table as TableIcon, Quote, CheckSquare, Image as ImageIcon } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/lib/stores/ui-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -158,7 +158,34 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const [branchesInfo, setBranchesInfo] = useState<BranchInfo[]>([]);
   const [isForkDialogOpen, setIsForkDialogOpen] = useState(false);
   const [forkSourceCommit, setForkSourceCommit] = useState<MerkleCommit | null>(null);
-  const [documentFont, setDocumentFont] = useState<string>("Inter, sans-serif");
+  const [documentFont, setDocumentFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
+  const [activeFont, setActiveFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      let node: Node | null = selection.anchorNode;
+      if (!node) return;
+      if (node.nodeType === Node.TEXT_NODE) {
+        node = node.parentNode;
+      }
+      if (node && node instanceof HTMLElement) {
+        const canvas = node.closest(".editor-canvas");
+        if (canvas) {
+          const computed = window.getComputedStyle(node).fontFamily;
+          if (computed) {
+            setActiveFont(computed);
+          }
+        }
+      }
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+    };
+  }, []);
 
   useEffect(() => {
     FontManager.preloadBuiltInFonts();
@@ -1151,7 +1178,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       <EditorToolbar
         onAction={handleToolbarAction}
         disabled={!canEdit}
-        currentFont={documentFont}
+        currentFont={activeFont}
         onFontChange={handleFontChange}
         onSizeChange={handleSizeChange}
         onColorChange={handleColorChange}
@@ -1190,7 +1217,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
 
           {/* Active document page */}
           <div
-            className={`w-full ${canvasWidthClass} min-h-[1050px] bg-card border border-border shadow-xs rounded-2xl p-8 sm:p-14 relative text-foreground space-y-4 transition-all duration-200`}
+            className={`w-full ${canvasWidthClass} min-h-[1050px] bg-card border border-border shadow-xs rounded-2xl p-8 sm:p-14 relative text-foreground space-y-4 transition-all duration-200 editor-canvas`}
             style={{ fontFamily: documentFont }}
           >
             {blocksState.map((block) => {
@@ -1217,76 +1244,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
               );
             })}
 
-            {/* Quick action block inserter dock */}
-            <div
-              className={`pt-8 border-t border-dashed border-border/70 flex flex-wrap items-center gap-2 ${
-                canEdit ? "" : "hidden pointer-events-none"
-              }`}
-            >
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddBlock("paragraph")}
-                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Абзац</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddBlock("heading1")}
-                className="h-8 text-xs gap-1.5 cursor-pointer font-bold hover:bg-primary/10"
-              >
-                <Heading1 className="h-3.5 w-3.5" />
-                <span>Заголовок H1</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddBlock("heading2")}
-                className="h-8 text-xs gap-1.5 cursor-pointer font-semibold hover:bg-primary/10"
-              >
-                <Heading2 className="h-3.5 w-3.5" />
-                <span>Заголовок H2</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddBlock("quote")}
-                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
-              >
-                <Quote className="h-3.5 w-3.5" />
-                <span>Цитата</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddBlock("todo")}
-                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
-              >
-                <CheckSquare className="h-3.5 w-3.5" />
-                <span>Задача (Todo)</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddBlock("table")}
-                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
-              >
-                <TableIcon className="h-3.5 w-3.5" />
-                <span>Таблица</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddBlock("image")}
-                className="h-8 text-xs gap-1.5 cursor-pointer hover:bg-primary/10"
-              >
-                <ImageIcon className="h-3.5 w-3.5" />
-                <span>Изображение</span>
-              </Button>
-            </div>
+            
           </div>
         </div>
 
