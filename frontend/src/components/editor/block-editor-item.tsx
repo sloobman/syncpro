@@ -301,6 +301,26 @@ function parseTodo(text: string): { done: boolean; task: string } {
 }
 
 
+export function applyFontFamilyToSelection(fontFamily: string): boolean {
+  if (typeof window === "undefined") return false;
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+  const range = selection.getRangeAt(0);
+  const span = document.createElement("span");
+  span.style.fontFamily = fontFamily;
+  try {
+    span.appendChild(range.extractContents());
+    range.insertNode(span);
+    const newRange = document.createRange();
+    newRange.selectNodeContents(span);
+    selection.removeAllRanges();
+    selection.addRange(newRange);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function applyFontSizeToSelection(size: string): boolean {
   if (typeof window === "undefined") return false;
   const selection = window.getSelection();
@@ -569,7 +589,7 @@ export function BlockEditorItem({
           {renderTypeIcon(block.blockType)}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-52 text-xs">
+      <DropdownMenuContent align="start" className="w-52 text-xs editor-canvas-ui font-sans" style={{ fontFamily: "var(--font-sans), system-ui, sans-serif" }}>
         <DropdownMenuItem onClick={() => onChangeType("paragraph")} className="gap-2 cursor-pointer">
           <Pilcrow className="h-3.5 w-3.5 text-muted-foreground" />
           <span>Текст / Абзац</span>
@@ -632,7 +652,7 @@ export function BlockEditorItem({
   // Floating WYSIWYG formatting toolbar when active
   const floatingFormattingBar = isActive && canEdit && (
     <div
-      className="absolute -top-9 left-6 z-20 flex items-center gap-0.5 bg-popover/95 text-popover-foreground border border-border/80 shadow-md backdrop-blur-md rounded-lg p-0.5 animate-in fade-in zoom-in-95 duration-100"
+      className="absolute -top-9 left-6 z-20 flex items-center gap-0.5 bg-popover/95 text-popover-foreground border border-border/80 shadow-md backdrop-blur-md rounded-lg p-0.5 animate-in fade-in zoom-in-95 duration-100 editor-canvas-ui font-sans" style={{ fontFamily: "var(--font-sans), system-ui, sans-serif" }}
       onMouseDown={(e) => e.preventDefault()}
     >
       <Button

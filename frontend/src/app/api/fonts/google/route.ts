@@ -26,7 +26,36 @@ export async function POST(request: NextRequest) {
 
     // Google Fonts URL (properly format family with '+')
     const formattedFamily = encodeURIComponent(sanitizedFamily).replace(/%20/g, "+");
-    const googleFontUrl = `https://fonts.googleapis.com/css2?family=${formattedFamily}:wght@400;500;600;700&display=swap`;
+    let googleFontUrl = `https://fonts.googleapis.com/css2?family=${formattedFamily}:wght@400;500;600;700&display=swap`;
+
+    // Validate that font exists in Google Fonts
+    const ua =
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    try {
+      const checkRes = await fetch(googleFontUrl, { headers: { "User-Agent": ua } });
+      const cssText = checkRes.ok ? await checkRes.text() : "";
+
+      if (!checkRes.ok || !cssText.includes("@font-face")) {
+        // Fallback: try without weight specification
+        const simpleUrl = `https://fonts.googleapis.com/css2?family=${formattedFamily}&display=swap`;
+        const simpleRes = await fetch(simpleUrl, { headers: { "User-Agent": ua } });
+        const simpleCss = simpleRes.ok ? await simpleRes.text() : "";
+
+        if (simpleRes.ok && simpleCss.includes("@font-face")) {
+          googleFontUrl = simpleUrl;
+        } else {
+          return NextResponse.json(
+            {
+              error: `Шрифт "${cleanName}" не найден в каталоге Google Fonts. Проверьте правильность написания или загрузите файл шрифта (.woff2, .ttf) во вкладке "Файл шрифта".`,
+            },
+            { status: 400 }
+          );
+        }
+      }
+    } catch (fetchErr) {
+      console.warn("[Google Font Check Warning]:", fetchErr);
+      // If network fetch fails server-side, continue to save so local testing works
+    }
 
     // Always exactly 64 characters hex for VARCHAR(64)
     const sha256Hash = crypto
