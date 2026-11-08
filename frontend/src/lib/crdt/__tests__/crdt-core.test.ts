@@ -150,3 +150,24 @@ test('BinaryCodec encodes and decodes StateVector and operations accurately', ()
 
   assert.strictEqual(doc2.toPlainText(), 'Hello World');
 });
+
+test('CRDTDocument insertBlockAfter(null) appends to end of document', () => {
+  const doc = new CRDTDocument(1);
+  const b1 = doc.insertBlockAfter(null, 'heading1', 'Title');
+  const b2 = doc.insertBlockAfter(b1.id, 'paragraph', 'First paragraph');
+  
+  // When inserting with null afterBlockId, it must append to the end, NOT prepend
+  const b3 = doc.insertBlockAfter(null, 'paragraph', 'Appended paragraph');
+  
+  const roots = doc.tree.getRootBlocks();
+  assert.strictEqual(roots.length, 3);
+  assert.strictEqual(equalIDs(roots[0].id, b1.id), true, 'First block remains Title');
+  assert.strictEqual(equalIDs(roots[1].id, b2.id), true, 'Second block remains First paragraph');
+  assert.strictEqual(equalIDs(roots[2].id, b3.id), true, 'Third block is Appended paragraph at the end');
+
+  // prependBlock explicitly prepends before the first block
+  const b0 = doc.prependBlock('heading2', 'Super header');
+  const rootsAfterPrepend = doc.tree.getRootBlocks();
+  assert.strictEqual(rootsAfterPrepend.length, 4);
+  assert.strictEqual(equalIDs(rootsAfterPrepend[0].id, b0.id), true, 'Prepended block is at index 0');
+});
