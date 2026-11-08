@@ -7,6 +7,8 @@ export interface UserRow {
   password_hash: string;
   avatar_url: string | null;
   role: string;
+  email_verified: boolean;
+  status: string;
   created_at: string;
   updated_at: string;
 }
@@ -17,6 +19,8 @@ export interface SafeUser {
   name: string;
   avatarUrl: string | null;
   role: string;
+  emailVerified: boolean;
+  status: string;
   timezone: string;
   locale: "ru" | "en";
   createdAt: string;
@@ -30,6 +34,8 @@ function rowToSafeUser(row: UserRow): SafeUser {
     name: row.name,
     avatarUrl: row.avatar_url,
     role: row.role || "user",
+    emailVerified: Boolean(row.email_verified),
+    status: row.status || "active",
     timezone: "Europe/Moscow",
     locale: "ru",
     createdAt: new Date(row.created_at).toISOString(),
@@ -38,9 +44,29 @@ function rowToSafeUser(row: UserRow): SafeUser {
 }
 
 export class UserRepository {
+  private static tableEnsured = false;
+
+  static async ensureTable(): Promise<void> {
+    if (this.tableEnsured) return;
+    try {
+      await query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'active';
+        UPDATE users SET email_verified = true WHERE role IN ('admin', 'system');
+      `);
+      this.tableEnsured = true;
+    } catch (err) {
+      console.warn("[UserRepository] ensureTable notice:", (err as Error).message);
+    }
+  }
+
   static async findByEmail(email: string): Promise<UserRow | null> {
+    await this.ensureTable();
     const res = await query<UserRow>(
-      `SELECT id, email, name, password_hash, avatar_url, role, created_at, updated_at
+      `SELECT id, email, name, password_hash, avatar_url, role,
+              COALESCE(email_verified, false) AS email_verified,
+              COALESCE(status, 'active') AS status,
+              created_at, updated_at
        FROM users
        WHERE LOWER(email) = LOWER($1)
        LIMIT 1`,
@@ -50,8 +76,12 @@ export class UserRepository {
   }
 
   static async findById(id: string): Promise<SafeUser | null> {
+    await this.ensureTable();
     const res = await query<UserRow>(
-      `SELECT id, email, name, password_hash, avatar_url, role, created_at, updated_at
+      `SELECT id, email, name, password_hash, avatar_url, role,
+              COALESCE(email_verified, false) AS email_verified,
+              COALESCE(status, 'active') AS status,
+              created_at, updated_at
        FROM users
        WHERE id = $1
        LIMIT 1`,
@@ -66,12 +96,19 @@ export class UserRepository {
     email: string;
     passwordHash: string;
     role?: string;
+    emailVerified?: boolean;
+    status?: string;
   }): Promise<SafeUser> {
+    await this.ensureTable();
+    const role = data.role || "user";
+    const emailVerified = data.emailVerified !== undefined ? data.emailVerified : false;
+    const status = data.status || "active";
+
     const userRes = await query<UserRow>(
-      `INSERT INTO users (email, name, password_hash, role)
-       VALUES (LOWER($1), $2, $3, $4)
-       RETURNING id, email, name, password_hash, avatar_url, role, created_at, updated_at`,
-      [data.email.trim(), data.name.trim(), data.passwordHash, data.role || "user"]
+      `INSERT INTO users (email, name, password_hash, role, email_verified, status)
+       VALUES (LOWER($1), $2, $3, $4, $5, $6)
+       RETURNING id, email, name, password_hash, avatar_url, role, email_verified, status, created_at, updated_at`,
+      [data.email.trim(), data.name.trim(), data.passwordHash, role, emailVerified, status]
     );
     const user = userRes.rows[0];
 
@@ -102,6 +139,7 @@ export class UserRepository {
     id: string,
     data: { name?: string; avatarUrl?: string | null }
   ): Promise<SafeUser | null> {
+    await this.ensureTable();
     const updates: string[] = ["updated_at = NOW()"];
     const values: (string | null)[] = [id];
     let paramIdx = 2;
@@ -120,7 +158,10 @@ export class UserRepository {
       `UPDATE users
        SET ${updates.join(", ")}
        WHERE id = $1
-       RETURNING id, email, name, password_hash, avatar_url, role, created_at, updated_at`,
+       RETURNING id, email, name, password_hash, avatar_url, role,
+                 COALESCE(email_verified, false) AS email_verified,
+                 COALESCE(status, 'active') AS status,
+                 created_at, updated_at`,
       values
     );
     if (!res.rows[0]) return null;
@@ -128,6 +169,7 @@ export class UserRepository {
   }
 
   static async updatePassword(id: string, passwordHash: string): Promise<boolean> {
+    await this.ensureTable();
     const res = await query(
       `UPDATE users
        SET password_hash = $2,

@@ -10,12 +10,12 @@ import {
   LogOut,
   User as UserIcon,
   Settings,
-  CheckCircle2,
   GitMerge,
   MessageSquare,
   Sparkles,
   UserPlus,
-  FileText,
+  CreditCard,
+  Shield,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -35,47 +35,63 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 export interface NotificationItem {
   id: string;
   title: string;
-  desc: string;
-  time: string;
+  description: string;
+  type: "system" | "invite" | "merge" | "comment";
+  link?: string;
+  createdAt: string;
   unread: boolean;
-  type: "comment" | "merge" | "invite" | "commit" | "system";
-  link?: string | null;
-  createdAt?: string;
 }
 
 export function Topbar() {
   const router = useRouter();
   const { toggleSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
+  const [searchVal, setSearchVal] = useState("");
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [searchVal, setSearchVal] = useState("");
 
+  // Poll notifications every 30s
   useEffect(() => {
     if (!user) return;
 
     let cancelled = false;
-    const load = async () => {
+
+    const fetchNotifications = async () => {
       try {
-        const res = await fetch("/api/notifications?limit=30", {
-          credentials: "include",
-        });
+        const res = await fetch("/api/notifications", { credentials: "include" });
         if (res.ok && !cancelled) {
           const data = await res.json();
           if (Array.isArray(data.notifications)) {
-            setNotifications(data.notifications);
-          }
-          if (typeof data.unreadCount === "number") {
-            setUnreadCount(data.unreadCount);
+            setNotifications(
+              data.notifications.map((item: {
+                id: string;
+                title: string;
+                description: string;
+                type: string;
+                link?: string;
+                created_at: string;
+                read: boolean;
+              }) => ({
+                id: item.id,
+                title: item.title,
+                description: item.description,
+                type: (item.type as NotificationItem["type"]) || "system",
+                link: item.link,
+                createdAt: item.created_at,
+                unread: !item.read,
+              }))
+            );
+            setUnreadCount(data.notifications.filter((n: { read: boolean }) => !n.read).length);
           }
         }
       } catch {
-        // Offline fallback
+        // Ignore network errors in polling
       }
     };
 
-    void load();
-    const interval = setInterval(load, 25000);
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
+
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -141,32 +157,34 @@ export function Topbar() {
     : "ГС";
 
   return (
-    <header className="h-16 border-b border-border bg-card/60 backdrop-blur-md px-4 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30">
-      {/* Mobile hamburger & Global Search */}
-      <div className="flex items-center gap-3">
+    <header className="h-16 border-b border-border bg-card/60 backdrop-blur-sm px-4 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30">
+      {/* Mobile Menu Button & Search Bar */}
+      <div className="flex items-center gap-3 flex-1 max-w-md">
         <Button
           variant="ghost"
           size="icon"
-          className="lg:hidden h-9 w-9 text-muted-foreground cursor-pointer"
+          className="lg:hidden h-9 w-9 text-muted-foreground shrink-0"
           onClick={toggleSidebar}
+          aria-label="Открыть меню"
         >
           <Menu className="h-5 w-5" />
         </Button>
 
-        {/* Global Search */}
-        <form onSubmit={handleSearchSubmit} className="relative w-56 sm:w-80">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <form onSubmit={handleSearchSubmit} className="relative w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            type="search"
+            placeholder="Поиск по документам..."
             value={searchVal}
             onChange={(e) => setSearchVal(e.target.value)}
-            placeholder="Поиск документов... (Enter)"
-            className="pl-9 h-9 text-xs sm:text-sm bg-muted/40 border-muted focus-visible:bg-background"
+            className="pl-9 h-9 w-full bg-background/50 border-border/60 text-xs focus-visible:bg-background transition-colors"
           />
         </form>
       </div>
 
-      {/* Right controls */}
+      {/* Right Controls */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Theme Toggle */}
         <ThemeToggle />
 
         {/* Notifications Dropdown */}
@@ -175,66 +193,83 @@ export function Topbar() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 text-muted-foreground hover:text-foreground relative cursor-pointer"
+              className="relative h-9 w-9 text-muted-foreground hover:text-foreground cursor-pointer"
               aria-label="Уведомления"
             >
               <Bell className="h-4 w-4" />
               {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white shadow-xs">
+                <span className="absolute top-1.5 right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground animate-in fade-in zoom-in duration-200">
                   {unreadCount > 9 ? "9+" : unreadCount}
                 </span>
               )}
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80 text-xs">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-              <DropdownMenuLabel className="p-0 text-xs font-semibold text-foreground">
-                Уведомления {unreadCount > 0 && `(${unreadCount})`}
-              </DropdownMenuLabel>
+          <DropdownMenuContent align="end" className="w-80 sm:w-96 p-0 overflow-hidden text-xs">
+            <div className="p-3 border-b border-border flex items-center justify-between bg-muted/30">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-foreground text-sm">Уведомления</span>
+                {unreadCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-primary/10 text-primary">
+                    {unreadCount} новых
+                  </span>
+                )}
+              </div>
               {unreadCount > 0 && (
                 <button
+                  type="button"
                   onClick={markAllRead}
-                  className="text-[11px] text-primary hover:underline cursor-pointer flex items-center gap-1"
+                  className="text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 >
-                  <CheckCircle2 className="h-3 w-3" />
                   Прочитать все
                 </button>
               )}
             </div>
-            <div className="divide-y divide-border/60 max-h-80 overflow-y-auto">
+
+            <div className="max-h-80 overflow-y-auto divide-y divide-border/40">
               {notifications.length > 0 ? (
                 notifications.map((n) => (
                   <div
                     key={n.id}
                     onClick={() => handleNotificationClick(n)}
-                    className={`p-3 transition-colors cursor-pointer ${
-                      n.unread ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
+                    className={`p-3 text-left transition-colors flex gap-3 cursor-pointer hover:bg-muted/50 ${
+                      n.unread ? "bg-primary/5" : ""
                     }`}
                   >
-                    <div className="flex items-start gap-2.5">
-                      <div className="mt-0.5 p-1 rounded-md bg-muted text-muted-foreground shrink-0">
-                        {n.type === "comment" && <MessageSquare className="h-3.5 w-3.5 text-blue-500" />}
-                        {n.type === "merge" && <GitMerge className="h-3.5 w-3.5 text-emerald-500" />}
-                        {n.type === "invite" && <UserPlus className="h-3.5 w-3.5 text-purple-500" />}
-                        {n.type === "commit" && <FileText className="h-3.5 w-3.5 text-cyan-500" />}
-                        {n.type === "system" && <Sparkles className="h-3.5 w-3.5 text-amber-500" />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-1">
-                          <p className="text-xs font-medium text-foreground leading-snug truncate">
-                            {n.title}
-                          </p>
-                          {n.unread && (
-                            <span className="h-1.5 w-1.5 rounded-full bg-blue-600 shrink-0" />
-                          )}
+                    <div className="mt-0.5 shrink-0">
+                      {n.type === "invite" ? (
+                        <div className="h-7 w-7 rounded-full bg-blue-500/10 text-blue-500 flex items-center justify-center">
+                          <UserPlus className="h-3.5 w-3.5" />
                         </div>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">
-                          {n.desc}
+                      ) : n.type === "merge" ? (
+                        <div className="h-7 w-7 rounded-full bg-purple-500/10 text-purple-500 flex items-center justify-center">
+                          <GitMerge className="h-3.5 w-3.5" />
+                        </div>
+                      ) : n.type === "comment" ? (
+                        <div className="h-7 w-7 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                        </div>
+                      ) : (
+                        <div className="h-7 w-7 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                          <Sparkles className="h-3.5 w-3.5" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className={`font-medium truncate ${n.unread ? "text-foreground" : "text-muted-foreground"}`}>
+                          {n.title}
                         </p>
-                        <span className="text-[10px] text-muted-foreground/80 mt-1 block">
-                          {n.time}
-                        </span>
+                        {n.unread && <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />}
                       </div>
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                        {n.description}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground/70">
+                        {new Date(n.createdAt).toLocaleTimeString("ru-RU", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
                     </div>
                   </div>
                 ))
@@ -292,11 +327,28 @@ export function Topbar() {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
+              <Link href="/settings/billing" className="flex items-center gap-2 cursor-pointer">
+                <CreditCard className="h-4 w-4 text-primary" />
+                <span>Тариф и подписка</span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
               <Link href="/settings" className="flex items-center gap-2 cursor-pointer">
                 <Settings className="h-4 w-4" />
                 <span>Настройки</span>
               </Link>
             </DropdownMenuItem>
+            {user?.role === "admin" && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/admin" className="flex items-center gap-2 cursor-pointer text-red-500 dark:text-red-400 font-semibold">
+                    <Shield className="h-4 w-4" />
+                    <span>Панель администратора</span>
+                  </Link>
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive focus:text-destructive cursor-pointer flex items-center gap-2"

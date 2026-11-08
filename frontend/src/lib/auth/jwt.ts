@@ -6,6 +6,8 @@ export interface TokenPayload {
   email: string;
   name: string;
   role: string;
+  email_verified?: boolean;
+  status?: string;
 }
 
 const TOKEN_EXPIRY = "7d";

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { User, Shield, Bell, Palette, ArrowLeft } from "lucide-react";
+import { User, Shield, Bell, Palette, ArrowLeft, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/settings/profile", label: "Профиль", icon: User },
   { href: "/settings/security", label: "Безопасность", icon: Shield },
+  { href: "/settings/billing", label: "Тариф и подписка", icon: CreditCard },
   { href: "/settings/appearance", label: "Внешний вид", icon: Palette },
   { href: "/settings/notifications", label: "Уведомления", icon: Bell },
 ];
@@ -63,10 +64,8 @@ export default function SettingsLayout({
           })}
         </nav>
 
-        {/* Content pane */}
-        <main className="flex-1 min-w-0 bg-card border border-border rounded-2xl p-6 shadow-sm">
-          {children}
-        </main>
+        {/* Content Area */}
+        <main className="flex-1 min-w-0">{children}</main>
       </div>
     </div>
   );
