@@ -86,6 +86,15 @@ export function sanitizeInlineStyle(styleStr: string): string {
       if (prop === "padding") {
         if (!/^[0-9\s.pxptremem%]+$/i.test(cleanVal)) return null;
       }
+      if (prop === "font-weight") {
+        if (!/^(?:normal|bold|bolder|lighter|[1-9]00)$/i.test(cleanVal)) return null;
+      }
+      if (prop === "font-style") {
+        if (!/^(?:normal|italic|oblique)$/i.test(cleanVal)) return null;
+      }
+      if (prop === "text-decoration") {
+        if (!/^(?:none|underline|line-through|overline)$/i.test(cleanVal)) return null;
+      }
 
       return `${prop}: ${cleanVal}`;
     })
