@@ -29,6 +29,10 @@ import {
   Loader2,
   AlertCircle,
   Scissors,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
+  Maximize2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -218,9 +222,42 @@ export function htmlToMarkdown(html: string): string {
   return walk(div).replace(/^\n+|\n+$/g, "");
 }
 
-// Table Markdown parser & serializer
-function parseMarkdownTable(text: string): { headers: string[]; rows: string[][] } {
-  const lines = text
+export interface TableMeta {
+  padding: number;
+  borders: "grid" | "rows" | "none";
+  striped: boolean;
+  align: "left" | "center" | "full";
+}
+
+export interface ParsedImage {
+  caption: string;
+  url: string;
+  width: string;
+  align: "left" | "center" | "right" | "full";
+}
+
+// Table Markdown parser & serializer with styling metadata
+function parseMarkdownTable(text: string): { headers: string[]; rows: string[][]; meta: TableMeta } {
+  let padding = 8;
+  let borders: "grid" | "rows" | "none" = "grid";
+  let striped = false;
+  let align: "left" | "center" | "full" = "full";
+
+  const metaMatch = text.match(/<!--\s*table\s+([^>]+)-->/);
+  if (metaMatch) {
+    const metaStr = metaMatch[1];
+    const padM = metaStr.match(/padding=(\d+)/);
+    if (padM) padding = parseInt(padM[1], 10);
+    const bordM = metaStr.match(/borders=(grid|rows|none)/);
+    if (bordM) borders = bordM[1] as TableMeta["borders"];
+    const stripM = metaStr.match(/striped=(true|false)/);
+    if (stripM) striped = stripM[1] === "true";
+    const alignM = metaStr.match(/align=(left|center|full)/);
+    if (alignM) align = alignM[1] as TableMeta["align"];
+  }
+
+  const cleanText = text.replace(/<!--\s*table\s+[^>]+-->\n?/, "");
+  const lines = cleanText
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
@@ -232,6 +269,7 @@ function parseMarkdownTable(text: string): { headers: string[]; rows: string[][]
         ["Статус", "В процессе"],
         ["Приоритет", "Высокий"],
       ],
+      meta: { padding, borders, striped, align },
     };
   }
 
@@ -251,6 +289,7 @@ function parseMarkdownTable(text: string): { headers: string[]; rows: string[][]
     return {
       headers: ["Колонка 1", "Колонка 2"],
       rows: [["", ""]],
+      meta: { padding, borders, striped, align },
     };
   }
 
@@ -260,34 +299,63 @@ function parseMarkdownTable(text: string): { headers: string[]; rows: string[][]
     return r.slice(0, headers.length);
   });
 
-  return { headers, rows: normalizedRows };
+  return { headers, rows: normalizedRows, meta: { padding, borders, striped, align } };
 }
 
-function serializeMarkdownTable(headers: string[], rows: string[][]): string {
+function serializeMarkdownTable(headers: string[], rows: string[][], meta?: TableMeta): string {
   const h = headers.map((x) => x.trim() || "Колонка");
   const headerLine = `| ${h.join(" | ")} |`;
   const sepLine = `| ${h.map(() => "---").join(" | ")} |`;
   const rowLines = rows.map(
     (row) => `| ${h.map((_, i) => (row[i] || "").trim()).join(" | ")} |`
   );
-  return [headerLine, sepLine, ...rowLines].join("\n");
+  let tableStr = [headerLine, sepLine, ...rowLines].join("\n");
+  if (meta && (meta.padding !== 8 || meta.borders !== "grid" || meta.striped || meta.align !== "full")) {
+    tableStr = `<!-- table padding=${meta.padding} borders=${meta.borders} striped=${meta.striped} align=${meta.align} -->\n${tableStr}`;
+  }
+  return tableStr;
 }
 
-// Image Markdown parser & serializer
-function parseMarkdownImage(text: string): { caption: string; url: string } {
+// Image Markdown parser & serializer with width and alignment
+function parseMarkdownImage(text: string): ParsedImage {
   const match = text.match(/^!\[(.*?)\]\((.*?)\)$/);
   if (match) {
-    return { caption: match[1] || "", url: match[2] || "" };
+    const rawCaption = match[1] || "";
+    const url = match[2] || "";
+    let caption = rawCaption;
+    let width = "100%";
+    let align: "left" | "center" | "right" | "full" = "center";
+
+    if (rawCaption.includes("|")) {
+      const parts = rawCaption.split("|");
+      caption = parts[0].trim();
+      for (let i = 1; i < parts.length; i++) {
+        const p = parts[i].trim();
+        if (p.startsWith("width=")) {
+          width = p.replace("width=", "").trim();
+        } else if (p.startsWith("align=")) {
+          const a = p.replace("align=", "").trim() as ParsedImage["align"];
+          if (["left", "center", "right", "full"].includes(a)) {
+            align = a;
+          }
+        }
+      }
+    }
+    return { caption, url, width, align };
   }
   if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("/")) {
-    return { caption: "Изображение", url: text.trim() };
+    return { caption: "Изображение", url: text.trim(), width: "100%", align: "center" };
   }
-  return { caption: "", url: "" };
+  return { caption: "", url: "", width: "100%", align: "center" };
 }
 
-function serializeMarkdownImage(caption: string, url: string): string {
+function serializeMarkdownImage(caption: string, url: string, width = "100%", align = "center"): string {
   if (!url) return "";
-  return `![${caption.trim() || "Изображение"}](${url.trim()})`;
+  const meta: string[] = [];
+  if (width && width !== "100%") meta.push(`width=${width}`);
+  if (align && align !== "center") meta.push(`align=${align}`);
+  const captionPart = meta.length > 0 ? `${caption.trim() || "Изображение"}|${meta.join("|")}` : (caption.trim() || "Изображение");
+  return `![${captionPart}](${url.trim()})`;
 }
 
 // Todo item parser & serializer
@@ -779,11 +847,16 @@ export function BlockEditorItem({
 
   // 2. RENDER TABLE BLOCK
   if (block.blockType === "table") {
-    const { headers, rows } = parseMarkdownTable(text);
+    const { headers, rows, meta } = parseMarkdownTable(text);
 
-    const updateTable = (newHeaders: string[], newRows: string[][]) => {
-      const serialized = serializeMarkdownTable(newHeaders, newRows);
+    const updateTable = (newHeaders: string[], newRows: string[][], newMeta?: TableMeta) => {
+      const serialized = serializeMarkdownTable(newHeaders, newRows, newMeta ?? meta);
       onChangeText(serialized);
+    };
+
+    const handleUpdateMeta = (updates: Partial<TableMeta>) => {
+      const nextMeta = { ...meta, ...updates };
+      updateTable(headers, rows, nextMeta);
     };
 
     const handleCellChange = (rowIndex: number, colIndex: number, val: string) => {
@@ -821,12 +894,131 @@ export function BlockEditorItem({
           {blockTypeDropdown}
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-border shadow-xs bg-card/60 backdrop-blur-xs">
-          <table className="w-full text-xs text-left border-collapse">
+        {/* Table Customization Toolbar */}
+        {canEdit && (
+          <div className="flex flex-wrap items-center gap-1.5 p-1.5 rounded-lg border border-border/80 bg-muted/30 text-xs">
+            <span className="text-[11px] font-semibold text-muted-foreground mr-1">Таблица:</span>
+            
+            {/* Cell Padding */}
+            <div className="flex items-center gap-1 border-r border-border/60 pr-2">
+              <span className="text-[10px] text-muted-foreground">Отступ:</span>
+              {[
+                { label: "4px", val: 4 },
+                { label: "8px", val: 8 },
+                { label: "14px", val: 14 },
+              ].map((p) => (
+                <Button
+                  key={p.label}
+                  variant={meta.padding === p.val ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => handleUpdateMeta({ padding: p.val })}
+                  className="h-5 px-1.5 text-[10px] cursor-pointer"
+                >
+                  {p.label}
+                </Button>
+              ))}
+              <input
+                type="number"
+                min="2"
+                max="32"
+                value={meta.padding}
+                onChange={(e) => handleUpdateMeta({ padding: Math.max(2, Math.min(32, parseInt(e.target.value) || 8)) })}
+                className="h-5 w-10 text-[10px] bg-background border rounded px-1 text-center"
+                title="Пользовательский отступ ячеек (px)"
+              />
+            </div>
+
+            {/* Borders style */}
+            <div className="flex items-center gap-1 border-r border-border/60 pr-2">
+              <span className="text-[10px] text-muted-foreground">Границы:</span>
+              <Button
+                variant={meta.borders === "grid" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => handleUpdateMeta({ borders: "grid" })}
+                className="h-5 px-1.5 text-[10px] cursor-pointer"
+              >
+                Сетка
+              </Button>
+              <Button
+                variant={meta.borders === "rows" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => handleUpdateMeta({ borders: "rows" })}
+                className="h-5 px-1.5 text-[10px] cursor-pointer"
+              >
+                Строки
+              </Button>
+              <Button
+                variant={meta.borders === "none" ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => handleUpdateMeta({ borders: "none" })}
+                className="h-5 px-1.5 text-[10px] cursor-pointer"
+              >
+                Без рамок
+              </Button>
+            </div>
+
+            {/* Striped toggle */}
+            <div className="flex items-center gap-1 border-r border-border/60 pr-2">
+              <Button
+                variant={meta.striped ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => handleUpdateMeta({ striped: !meta.striped })}
+                className="h-5 px-1.5 text-[10px] cursor-pointer"
+              >
+                Зебра
+              </Button>
+            </div>
+
+            {/* Table alignment */}
+            <div className="flex items-center gap-0.5 ml-auto">
+              <Button
+                variant={meta.align === "left" ? "secondary" : "ghost"}
+                size="icon"
+                onClick={() => handleUpdateMeta({ align: "left" })}
+                className="h-5 w-5 text-muted-foreground cursor-pointer"
+                title="Выровнять таблицу влево"
+              >
+                <AlignLeft className="h-3 w-3" />
+              </Button>
+              <Button
+                variant={meta.align === "center" ? "secondary" : "ghost"}
+                size="icon"
+                onClick={() => handleUpdateMeta({ align: "center" })}
+                className="h-5 w-5 text-muted-foreground cursor-pointer"
+                title="Выровнять таблицу по центру"
+              >
+                <AlignCenter className="h-3 w-3" />
+              </Button>
+              <Button
+                variant={meta.align === "full" ? "secondary" : "ghost"}
+                size="icon"
+                onClick={() => handleUpdateMeta({ align: "full" })}
+                className="h-5 w-5 text-muted-foreground cursor-pointer"
+                title="Растянуть на всю ширину"
+              >
+                <Maximize2 className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div
+          className="overflow-x-auto rounded-xl border border-border shadow-xs bg-card/60 backdrop-blur-xs transition-all"
+          style={{
+            maxWidth: meta.align === "full" ? "100%" : "85%",
+            marginLeft: meta.align === "center" ? "auto" : "0",
+            marginRight: meta.align === "center" ? "auto" : "0",
+          }}
+        >
+          <table
+            className={`w-full text-xs text-left border-collapse ${
+              meta.borders === "none" ? "border-transparent" : "border-border"
+            }`}
+          >
             <thead>
               <tr className="border-b border-border bg-muted/40 font-semibold text-foreground">
                 {headers.map((h, colIdx) => (
-                  <th key={`th-${colIdx}`} className="p-2 border-r border-border last:border-r-0">
+                  <th key={`th-${colIdx}`} style={{ padding: `${meta.padding}px` }} className={`${meta.borders === 'grid' ? 'border-r border-border last:border-r-0' : ''}`}>
                     {canEdit ? (
                       <input
                         value={h}
@@ -846,12 +1038,12 @@ export function BlockEditorItem({
               {rows.map((row, rowIdx) => (
                 <tr
                   key={`tr-${rowIdx}`}
-                  className="border-b border-border/70 last:border-b-0 hover:bg-muted/20 transition-colors"
+                  className={`${meta.borders !== 'none' ? 'border-b border-border/70 last:border-b-0' : ''} ${meta.striped && rowIdx % 2 === 1 ? 'bg-muted/30' : ''} hover:bg-muted/20 transition-colors`}
                 >
                   {row.map((cell, colIdx) => (
                     <td
                       key={`td-${rowIdx}-${colIdx}`}
-                      className="p-2 border-r border-border/70 last:border-r-0"
+                      style={{ padding: `${meta.padding}px` }} className={`${meta.borders === 'grid' ? 'border-r border-border/70 last:border-r-0' : ''}`}
                     >
                       {canEdit ? (
                         <input
@@ -949,53 +1141,131 @@ export function BlockEditorItem({
         />
 
         {url && !isEditingImage ? (
-          <div className="relative group/img flex flex-col items-center p-2 rounded-2xl bg-muted/20 border border-border/80">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={url}
-              alt={caption || "Изображение"}
-              className="max-h-[460px] w-auto max-w-full rounded-xl object-contain shadow-xs"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src =
-                  "https://placehold.co/600x400/e2e8f0/475569?text=Изображение+не+найдено";
-              }}
-            />
-            {caption && (
-              <p className="text-xs text-muted-foreground text-center mt-2 font-medium">
-                {caption}
-              </p>
-            )}
-
+          <div
+            className="flex flex-col my-2 transition-all group/img"
+            style={{
+              width: parsedImage.width || "100%",
+              marginLeft: parsedImage.align === "right" ? "auto" : parsedImage.align === "center" ? "auto" : "0",
+              marginRight: parsedImage.align === "left" ? "auto" : parsedImage.align === "center" ? "auto" : "0",
+            }}
+          >
+            {/* Image Positioning & Sizing Toolbar */}
             {canEdit && (
-              <div className="absolute top-4 right-4 opacity-0 group-hover/img:opacity-100 transition-opacity flex gap-1.5 bg-background/90 backdrop-blur-md p-1 rounded-lg border border-border shadow-xs">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="h-7 text-xs px-2 gap-1 cursor-pointer"
-                  title="Загрузить другое фото с устройства"
-                >
-                  <Upload className="h-3 w-3" />
-                  <span>Заменить</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleOpenImageEditor}
-                  className="h-7 text-xs px-2 cursor-pointer"
-                >
-                  Настройки
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onDelete}
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+              <div className="flex flex-wrap items-center justify-between gap-1 p-1 mb-1.5 rounded-lg border border-border/80 bg-background/95 backdrop-blur-md shadow-xs opacity-0 group-hover/img:opacity-100 focus-within:opacity-100 transition-opacity text-xs editor-ui-control">
+                {/* Alignment */}
+                <div className="flex items-center gap-0.5">
+                  <Button
+                    variant={parsedImage.align === "left" ? "secondary" : "ghost"}
+                    size="icon"
+                    onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, parsedImage.width, "left"))}
+                    className="h-6 w-6 cursor-pointer"
+                    title="Выровнять по левому краю"
+                  >
+                    <AlignLeft className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant={parsedImage.align === "center" ? "secondary" : "ghost"}
+                    size="icon"
+                    onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, parsedImage.width, "center"))}
+                    className="h-6 w-6 cursor-pointer"
+                    title="По центру"
+                  >
+                    <AlignCenter className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant={parsedImage.align === "right" ? "secondary" : "ghost"}
+                    size="icon"
+                    onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, parsedImage.width, "right"))}
+                    className="h-6 w-6 cursor-pointer"
+                    title="По правому краю"
+                  >
+                    <AlignRight className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant={parsedImage.align === "full" ? "secondary" : "ghost"}
+                    size="icon"
+                    onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, "100%", "full"))}
+                    className="h-6 w-6 cursor-pointer"
+                    title="На всю ширину листа"
+                  >
+                    <Maximize2 className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                {/* Width Presets */}
+                <div className="flex items-center gap-1 border-l border-r border-border/60 px-1.5">
+                  {["25%", "50%", "75%", "100%"].map((w) => (
+                    <Button
+                      key={w}
+                      variant={parsedImage.width === w ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, w, parsedImage.align))}
+                      className="h-5 px-1 text-[10px] cursor-pointer"
+                    >
+                      {w}
+                    </Button>
+                  ))}
+                  {/* Slider */}
+                  <input
+                    type="range"
+                    min="20"
+                    max="100"
+                    step="5"
+                    value={parseInt(parsedImage.width) || 100}
+                    onChange={(e) => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, `${e.target.value}%`, parsedImage.align))}
+                    className="w-14 h-1 accent-primary cursor-pointer ml-1"
+                    title="Ширина изображения"
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-6 px-1.5 text-[10px] gap-1 cursor-pointer"
+                  >
+                    <Upload className="h-2.5 w-2.5" />
+                    <span>Заменить</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleOpenImageEditor}
+                    className="h-6 px-1.5 text-[10px] cursor-pointer"
+                  >
+                    Настройки
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onDelete}
+                    className="h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
               </div>
             )}
+
+            <div className="relative p-2 rounded-2xl bg-muted/20 border border-border/80 flex flex-col items-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={caption || "Изображение"}
+                className="max-h-[560px] w-full rounded-xl object-contain shadow-xs transition-all"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src =
+                    "https://placehold.co/600x400/e2e8f0/475569?text=Изображение+не+найдено";
+                }}
+              />
+              {caption && (
+                <p className="text-xs text-muted-foreground text-center mt-2 font-medium">
+                  {caption}
+                </p>
+              )}
+            </div>
           </div>
         ) : (
           <div

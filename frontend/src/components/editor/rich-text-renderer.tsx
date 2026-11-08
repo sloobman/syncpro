@@ -24,6 +24,13 @@ export function sanitizeInlineStyle(styleStr: string): string {
     "font-weight",
     "font-style",
     "text-decoration",
+    "line-height",
+    "letter-spacing",
+    "margin-bottom",
+    "margin-top",
+    "width",
+    "max-width",
+    "padding",
   ];
 
   return styleStr
@@ -63,6 +70,21 @@ export function sanitizeInlineStyle(styleStr: string): string {
       if (prop === "font-family") {
         // Allow alphanumeric font names with spaces, commas, hyphens and optional safe single quotes
         if (!/^[a-zA-Z0-9\s,'\-_]+$/.test(cleanVal)) return null;
+      }
+      if (prop === "line-height") {
+        if (!/^(?:normal|\d+(?:\.\d+)?(?:px|pt|em|rem|%)?)$/i.test(cleanVal)) return null;
+      }
+      if (prop === "letter-spacing") {
+        if (!/^(?:normal|-?\d+(?:\.\d+)?(?:px|pt|em|rem))$/i.test(cleanVal)) return null;
+      }
+      if (prop === "margin-bottom" || prop === "margin-top") {
+        if (!/^\d+(?:\.\d+)?(?:px|pt|mm|rem|em)$/i.test(cleanVal)) return null;
+      }
+      if (prop === "width" || prop === "max-width") {
+        if (!/^\d+(?:\.\d+)?(?:%|px|rem|em)$/i.test(cleanVal)) return null;
+      }
+      if (prop === "padding") {
+        if (!/^[0-9\s.pxptremem%]+$/i.test(cleanVal)) return null;
       }
 
       return `${prop}: ${cleanVal}`;

@@ -1109,6 +1109,48 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     }
   }, []);
 
+  const handleExportMarkdownZip = useCallback(async () => {
+    const doc = docRef.current;
+    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
+    const blob = await DocumentConverter.exportMarkdownZip(title || "Документ", content);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${title.trim().replace(/\s+/g, "_") || "document"}.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [blockTexts, title]);
+
+  const handleChangeSpacing = useCallback(
+    (spacing: { lineHeight: number | string; paragraphSpacing: number; letterSpacing: string }) => {
+      setPageLayout((prev) => {
+        const updated = {
+          ...prev,
+          lineHeight: spacing.lineHeight,
+          paragraphSpacing: spacing.paragraphSpacing,
+          letterSpacing: spacing.letterSpacing,
+        };
+        try {
+          localStorage.setItem("syncpro_page_layout", JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    },
+    []
+  );
+
+  const handleInsertLink = useCallback(
+    (linkData: { url: string; text: string; openInNewTab: boolean }) => {
+      if (!canEdit) return;
+      const targetAttr = linkData.openInNewTab ? ' target="_blank" rel="noopener noreferrer"' : '';
+      const linkHtml = `<a href="${linkData.url}"${targetAttr}>${linkData.text}</a>`;
+      if (typeof document !== "undefined") {
+        document.execCommand("insertHTML", false, linkHtml);
+      }
+    },
+    [canEdit]
+  );
+
   const handleExportDocx = useCallback(async () => {
     const doc = docRef.current;
     const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
@@ -1228,6 +1270,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         onSelectBranch={handleSelectBranch}
         onCreateBranch={handleCreateBranch}
         onExportMarkdown={handleExportMarkdown}
+        onExportMarkdownZip={handleExportMarkdownZip}
         onExportPdf={handleExportPdf}
         onExportDocx={handleExportDocx}
         onExportOdt={handleExportOdt}
@@ -1255,6 +1298,11 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         pageConfig={pageLayout}
         onChangePageConfig={handlePageLayoutChange}
         onInsertPageBreak={() => handleAddBlock("page-break")}
+        currentLineHeight={pageLayout.lineHeight || 1.5}
+        currentParagraphSpacing={pageLayout.paragraphSpacing ?? 8}
+        currentLetterSpacing={pageLayout.letterSpacing || "normal"}
+        onChangeSpacing={handleChangeSpacing}
+        onInsertLink={handleInsertLink}
       />
 
       {/* Main editor area */}
