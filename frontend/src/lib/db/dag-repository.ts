@@ -14,6 +14,7 @@ export interface DbBranch {
   document_id: string;
   name: string;
   head_commit_id: string;
+  headCommitId?: string;
   created_at: string;
 }
 
@@ -306,7 +307,14 @@ export class MerkleDAGRepository {
        ORDER BY name ASC`,
       [validId]
     );
-    return res.rows.map((b) => ({ ...b, head_commit_id: b.head_commit_id.trim() }));
+    return res.rows.map((b) => {
+      const headId = (b.head_commit_id || "").trim();
+      return {
+        ...b,
+        head_commit_id: headId,
+        headCommitId: headId,
+      };
+    });
   }
 
   /**
@@ -335,7 +343,12 @@ export class MerkleDAGRepository {
       RETURNING document_id, name, head_commit_id, created_at
     `;
     const res = await query<DbBranch>(sql, [validDocId, cleanName, cleanCommitId]);
-    return { ...res.rows[0], head_commit_id: res.rows[0].head_commit_id.trim() };
+    const headId = (res.rows[0].head_commit_id || "").trim();
+    return {
+      ...res.rows[0],
+      head_commit_id: headId,
+      headCommitId: headId,
+    };
   }
 
   /**
