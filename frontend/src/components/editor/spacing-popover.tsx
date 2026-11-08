@@ -68,6 +68,8 @@ export function SpacingPopover({
   const [customParagraphSpacing, setCustomParagraphSpacing] = useState<number>(currentParagraphSpacing);
   const [customLetterSpacing, setCustomLetterSpacing] = useState<string>(currentLetterSpacing);
 
+
+
   const handleApplyPresetLineHeight = (val: number) => {
     setLineHeight(val);
     setCustomLineHeight(val.toString());
@@ -150,8 +152,20 @@ export function SpacingPopover({
     setOpen(false);
   };
 
+  const handleOpenChange = (isOpen: boolean) => {
+    if (isOpen) {
+      setLineHeight(currentLineHeight);
+      setCustomLineHeight(String(currentLineHeight));
+      setParagraphSpacing(currentParagraphSpacing);
+      setCustomParagraphSpacing(currentParagraphSpacing);
+      setLetterSpacing(currentLetterSpacing);
+      setCustomLetterSpacing(currentLetterSpacing);
+    }
+    setOpen(isOpen);
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
