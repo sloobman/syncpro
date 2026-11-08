@@ -23,7 +23,6 @@ import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useUIStore } from "@/lib/stores/ui-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
@@ -149,7 +148,6 @@ function serializeCRDTToMarkdown(doc: CRDTDocument): string {
 
 export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const router = useRouter();
-  const { canvasWidth } = useUIStore();
   const { user } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [commits, setCommits] = useState<MerkleCommit[]>([]);
