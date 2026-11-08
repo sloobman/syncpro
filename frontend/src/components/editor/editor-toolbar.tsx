@@ -153,8 +153,12 @@ export function EditorToolbar({
           sel.removeAllRanges();
           sel.addRange(savedRangeRef.current);
         }
+        const escapeHtml = (str: string) =>
+          str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        const safeUrl = escapeHtml(linkData.url);
+        const safeText = escapeHtml(linkData.text);
         const targetAttr = linkData.openInNewTab ? ' target="_blank" rel="noopener noreferrer"' : '';
-        const linkHtml = `<a href="${linkData.url}"${targetAttr}>${linkData.text}</a>`;
+        const linkHtml = `<a href="${safeUrl}"${targetAttr}>${safeText}</a>`;
         document.execCommand("insertHTML", false, linkHtml);
       }
     }

@@ -142,11 +142,30 @@ export class DocumentConverter {
         }
       }
 
-      // 2. HTTP / relative fetch
-      const fetchUrl = url.startsWith("/") && typeof window !== "undefined" ? `${window.location.origin}${url}` : url;
-      const res = await fetch(fetchUrl);
+      // 2. HTTP / relative fetch with safety guards
+      const isHttp = url.startsWith("http://") || url.startsWith("https://");
+      const isRelative = url.startsWith("/");
+      if (!isHttp && !isRelative) {
+        return null; // Reject dangerous schemes: file:, javascript:, ftp:, gopher:, blob:, etc.
+      }
+
+      const fetchUrl = isRelative && typeof window !== "undefined" ? `${window.location.origin}${url}` : url;
+      const res = await fetch(fetchUrl, {
+        signal: AbortSignal.timeout(8000),
+      });
       if (!res.ok) return null;
+
+      const contentLength = res.headers.get("content-length");
+      if (contentLength && parseInt(contentLength, 10) > 15 * 1024 * 1024) {
+        console.warn("[DocumentConverter] Image exceeds 15MB limit, skipping");
+        return null;
+      }
+
       const arrayBuffer = await res.arrayBuffer();
+      if (arrayBuffer.byteLength > 15 * 1024 * 1024) {
+        console.warn("[DocumentConverter] Image exceeds 15MB limit, skipping");
+        return null;
+      }
       return { data: new Uint8Array(arrayBuffer), width: 480, height: 320 };
     } catch (e) {
       console.warn("[DocumentConverter] Failed to resolve image buffer:", e);
@@ -249,21 +268,27 @@ export class DocumentConverter {
 
       // 3. Link <a href="...">
       if (match[4] && match[5] !== undefined) {
-        const href = match[4];
+        const rawHref = match[4].trim();
         const linkText = match[5].replace(/<[^>]+>/g, "");
-        runs.push(
-          new ExternalHyperlink({
-            children: [
-              new TextRun({
-                text: linkText,
-                style: "Hyperlink",
-                color: "2563EB",
-                underline: {},
-              }),
-            ],
-            link: href,
-          })
-        );
+        // Only allow safe protocols for Word hyperlinks (http, https, mailto)
+        const isSafeLink = /^(?:https?:\/\/|mailto:)/i.test(rawHref);
+        if (isSafeLink) {
+          runs.push(
+            new ExternalHyperlink({
+              children: [
+                new TextRun({
+                  text: linkText,
+                  style: "Hyperlink",
+                  color: "2563EB",
+                  underline: {},
+                }),
+              ],
+              link: rawHref,
+            })
+          );
+        } else {
+          runs.push(new TextRun({ text: linkText }));
+        }
         continue;
       }
 
@@ -671,7 +696,12 @@ ${manifestEntries}
       }
     }
 
-    zip.file(`${title || "document"}.md`, updatedMd);
+    // Sanitize title against Zip Slip / path traversal
+    const safeTitle = (title || "document")
+      .replace(/[/\\?%*:|"<>]/g, "_")
+      .replace(/\.\.+/g, "_")
+      .trim() || "document";
+    zip.file(`${safeTitle}.md`, updatedMd);
     return await zip.generateAsync({ type: "blob" });
   }
 

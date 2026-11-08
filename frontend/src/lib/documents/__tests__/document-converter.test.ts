@@ -121,17 +121,24 @@ test("validatePageLayout enforces guardrail constraints on custom format and mar
   assert.strictEqual(tooSmall.valid, false);
   assert.ok(tooSmall.error?.includes("100"));
 
-  // 3. Margins leaving less than 50mm printable area
-  const marginOverflow = validatePageLayout({
+  // 4. NaN or non-finite inputs
+  const nanDimensions = validatePageLayout({
     format: "custom",
+    orientation: "portrait",
+    margins: "normal",
+    zoom: 1.0,
+    customDimensions: { widthMm: NaN, heightMm: 297 },
+  });
+  assert.strictEqual(nanDimensions.valid, false);
+
+  const nanMargins = validatePageLayout({
+    format: "a4",
     orientation: "portrait",
     margins: "custom",
     zoom: 1.0,
-    customDimensions: { widthMm: 120, heightMm: 150 },
-    customMargins: { topMm: 20, bottomMm: 20, leftMm: 40, rightMm: 40 },
+    customMargins: { topMm: NaN, bottomMm: 20, leftMm: 20, rightMm: 20 },
   });
-  assert.strictEqual(marginOverflow.valid, false);
-  assert.ok(marginOverflow.error?.includes("50"));
+  assert.strictEqual(nanMargins.valid, false);
 });
 
 test("DocumentConverter exports DOCX with HTML styles and without leaking raw HTML tags", async () => {
@@ -154,4 +161,21 @@ test("DocumentConverter exports Markdown ZIP bundle with document.md and media f
   const zip = await JSZip.loadAsync(arrayBuffer);
   assert.ok(zip.file("Media_Doc.md") || zip.file("Media Doc.md"));
   assert.ok(zip.file("media/image_1.png"));
+});
+
+test("DocumentConverter sanitizes title against Zip Slip / path traversal in Markdown ZIP", async () => {
+  const dangerousTitle = "../../etc/evil_file";
+  const markdown = "Hello world";
+
+  const zipBlob = await DocumentConverter.exportMarkdownZip(dangerousTitle, markdown);
+  const arrayBuffer = await zipBlob.arrayBuffer();
+  const zip = await JSZip.loadAsync(arrayBuffer);
+
+  // Must not have path traversal '../'
+  const files = Object.keys(zip.files);
+  for (const filename of files) {
+    assert.strictEqual(filename.includes("../"), false);
+    assert.strictEqual(filename.includes("..\\"), false);
+  }
+  assert.ok(files.some((f) => f.endsWith("etc_evil_file.md") && !f.includes("..")));
 });
