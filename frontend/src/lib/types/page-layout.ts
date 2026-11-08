@@ -118,10 +118,17 @@ export function validatePageLayout(config: PageLayoutConfig): {
   const sanitized = { ...config };
 
   if (sanitized.format === "custom") {
-    const rawW = sanitized.customDimensions?.widthMm ?? 210;
-    const rawH = sanitized.customDimensions?.heightMm ?? 297;
+    const rawW = sanitized.customDimensions?.widthMm;
+    const rawH = sanitized.customDimensions?.heightMm;
 
-    if (rawW < MIN_PAGE_SIZE_MM || rawH < MIN_PAGE_SIZE_MM) {
+    if (
+      rawW === undefined ||
+      rawH === undefined ||
+      !Number.isFinite(rawW) ||
+      !Number.isFinite(rawH) ||
+      rawW < MIN_PAGE_SIZE_MM ||
+      rawH < MIN_PAGE_SIZE_MM
+    ) {
       return {
         valid: false,
         error: `Минимальный размер страницы должен быть не менее ${MIN_PAGE_SIZE_MM} × ${MIN_PAGE_SIZE_MM} мм`,
@@ -142,12 +149,25 @@ export function validatePageLayout(config: PageLayoutConfig): {
   }
 
   if (sanitized.margins === "custom") {
-    const top = sanitized.customMargins?.topMm ?? 20;
-    const bottom = sanitized.customMargins?.bottomMm ?? 20;
-    const left = sanitized.customMargins?.leftMm ?? 20;
-    const right = sanitized.customMargins?.rightMm ?? 20;
+    const top = sanitized.customMargins?.topMm;
+    const bottom = sanitized.customMargins?.bottomMm;
+    const left = sanitized.customMargins?.leftMm;
+    const right = sanitized.customMargins?.rightMm;
 
-    if (top < MIN_MARGIN_MM || bottom < MIN_MARGIN_MM || left < MIN_MARGIN_MM || right < MIN_MARGIN_MM) {
+    if (
+      top === undefined ||
+      bottom === undefined ||
+      left === undefined ||
+      right === undefined ||
+      !Number.isFinite(top) ||
+      !Number.isFinite(bottom) ||
+      !Number.isFinite(left) ||
+      !Number.isFinite(right) ||
+      top < MIN_MARGIN_MM ||
+      bottom < MIN_MARGIN_MM ||
+      left < MIN_MARGIN_MM ||
+      right < MIN_MARGIN_MM
+    ) {
       return {
         valid: false,
         error: `Минимальное поле страницы должно быть не менее ${MIN_MARGIN_MM} мм`,

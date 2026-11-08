@@ -68,9 +68,10 @@ export function LinkDialog({
       formattedUrl = `https://${formattedUrl}`;
     }
 
-    // Disallow javascript: or vbscript: or data:
-    if (/^(?:javascript|vbscript|data:text\/html):/i.test(formattedUrl)) {
-      setError("Указан небезопасный протокол ссылки");
+    // Strict allowlist: only http, https, mailto, tel, or relative/anchor paths
+    const isSafeProtocol = /^(?:https?:\/\/|mailto:|tel:|\/|#)/i.test(formattedUrl);
+    if (!isSafeProtocol) {
+      setError("Разрешены только веб-ссылки (http, https), почта (mailto), телефоны (tel) и ссылки на разделы (#)");
       return;
     }
 

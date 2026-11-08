@@ -1142,8 +1142,12 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const handleInsertLink = useCallback(
     (linkData: { url: string; text: string; openInNewTab: boolean }) => {
       if (!canEdit) return;
+      const escapeHtml = (str: string) =>
+        str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const safeUrl = escapeHtml(linkData.url);
+      const safeText = escapeHtml(linkData.text);
       const targetAttr = linkData.openInNewTab ? ' target="_blank" rel="noopener noreferrer"' : '';
-      const linkHtml = `<a href="${linkData.url}"${targetAttr}>${linkData.text}</a>`;
+      const linkHtml = `<a href="${safeUrl}"${targetAttr}>${safeText}</a>`;
       if (typeof document !== "undefined") {
         document.execCommand("insertHTML", false, linkHtml);
       }
