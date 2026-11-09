@@ -12,7 +12,7 @@ import { ForkBranchDialog } from "@/components/editor/fork-branch-dialog";
 import type { BranchInfo } from "@/components/editor/branch-graph-view";
 import { CommitDialog } from "@/components/editor/commit-dialog";
 import { DiffViewer } from "@/components/editor/diff-viewer";
-import { applyFontSizeToSelection, applyFontFamilyToSelection, htmlToMarkdown, type RemoteCursorInfo } from "@/components/editor/block-editor-item";
+import { applyFontSizeToSelection, applyFontFamilyToSelection, htmlToMarkdown, markdownToHtml, type RemoteCursorInfo } from "@/components/editor/block-editor-item";
 import { PagedCanvas } from "@/components/editor/paged-canvas";
 import { DEFAULT_PAGE_LAYOUT, type PageLayoutConfig } from "@/lib/types/page-layout";
 import { DocumentConverter } from "@/lib/documents/document-converter";
@@ -146,6 +146,47 @@ function serializeCRDTToMarkdown(doc: CRDTDocument): string {
     .join("\n\n");
 }
 
+function setCaretAtCharOffset(element: HTMLElement, offset: number) {
+  try {
+    element.focus({ preventScroll: true });
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    const range = document.createRange();
+    let currentOffset = 0;
+    let found = false;
+
+    function traverseNodes(node: Node) {
+      if (found) return;
+      if (node.nodeType === Node.TEXT_NODE) {
+        const textLen = (node.textContent || "").length;
+        if (currentOffset + textLen >= offset) {
+          range.setStart(node, Math.min(offset - currentOffset, textLen));
+          range.collapse(true);
+          found = true;
+          return;
+        }
+        currentOffset += textLen;
+      } else {
+        for (let i = 0; i < node.childNodes.length; i++) {
+          traverseNodes(node.childNodes[i]);
+          if (found) return;
+        }
+      }
+    }
+
+    traverseNodes(element);
+    if (!found) {
+      range.selectNodeContents(element);
+      range.collapse(false);
+    }
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch (err) {
+    console.warn("Caret positioning notice:", err);
+  }
+}
+
 export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const router = useRouter();
   const { user } = useAuthStore();
@@ -161,7 +202,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const [branchesInfo, setBranchesInfo] = useState<BranchInfo[]>([]);
   const [isForkDialogOpen, setIsForkDialogOpen] = useState(false);
   const [forkSourceCommit, setForkSourceCommit] = useState<MerkleCommit | null>(null);
-  const [documentFont, setDocumentFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
+  const [documentFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
   const [activeFont, setActiveFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
   const [activeSize, setActiveSize] = useState<string>("16px");
 
@@ -190,6 +231,21 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     [documentId]
   );
 
+  const lastSavedRangeRef = useRef<{ range: Range; blockId: string } | null>(null);
+  const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
+
+  type BlockHistoryOp = {
+    type: "merge" | "delete" | "add";
+    prevBlockId?: ID;
+    currentBlockId?: ID;
+    currentBlockType?: BlockType;
+    prevText?: string;
+    currentText?: string;
+    afterBlockId?: ID | null;
+  };
+
+  const blockUndoStackRef = useRef<BlockHistoryOp[]>([]);
+
   useEffect(() => {
     const handleSelectionChange = () => {
       const selection = window.getSelection();
@@ -200,6 +256,12 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         node = node.parentNode;
       }
       if (node && node instanceof HTMLElement) {
+        const blockEl = node.closest('[id^="block-"]');
+        if (blockEl) {
+          const bKey = blockEl.id.replace("block-", "");
+          const range = selection.getRangeAt(0);
+          lastSavedRangeRef.current = { range: range.cloneRange(), blockId: bKey };
+        }
         const canvas = node.closest(".editor-canvas");
         if (canvas) {
           const computed = window.getComputedStyle(node);
@@ -697,9 +759,29 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
 
   // Delete a block from the CRDT tree
   const handleDeleteBlock = useCallback(
-    (blockId: ID) => {
+    (blockId: ID, recordUndo = true) => {
       const doc = docRef.current;
       if (!doc || !canEdit) return;
+
+      if (recordUndo) {
+        const rootBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
+        const idx = rootBlocks.findIndex(
+          (b) => b.id.clock === blockId.clock && b.id.clientId === blockId.clientId
+        );
+        const targetBlock = idx >= 0 ? rootBlocks[idx] : null;
+        if (targetBlock) {
+          const afterBlockId = idx > 0 ? rootBlocks[idx - 1].id : null;
+          const text = doc.getBlockText(targetBlock.id);
+          blockUndoStackRef.current.push({
+            type: "delete",
+            currentBlockId: targetBlock.id,
+            currentBlockType: targetBlock.blockType,
+            currentText: text,
+            afterBlockId,
+          });
+        }
+      }
+
       doc.deleteBlock(blockId);
       refreshBlocks();
       triggerAutoSave();
@@ -707,12 +789,54 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     [canEdit, refreshBlocks, triggerAutoSave]
   );
 
+  const handleUndoBlockOp = useCallback(() => {
+    const op = blockUndoStackRef.current.pop();
+    if (!op) return;
+    const doc = docRef.current;
+    if (!doc || !canEdit) return;
+
+    if (
+      op.type === "merge" &&
+      op.prevBlockId &&
+      op.currentBlockType &&
+      op.prevText !== undefined &&
+      op.currentText !== undefined
+    ) {
+      handleTextChange(op.prevBlockId, op.prevText);
+      const prevKey = formatID(op.prevBlockId);
+      const el = document.getElementById(`block-${prevKey}`);
+      if (el) {
+        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+        if (editable) editable.innerHTML = markdownToHtml(op.prevText);
+      }
+      const reinserted = doc.insertBlockAfter(op.prevBlockId, op.currentBlockType, op.currentText);
+      setActiveBlockId(formatID(reinserted.id));
+      refreshBlocks();
+      triggerAutoSave();
+    } else if (op.type === "delete" && op.currentBlockType && op.currentText !== undefined) {
+      const reinserted = doc.insertBlockAfter(op.afterBlockId ?? null, op.currentBlockType, op.currentText);
+      setActiveBlockId(formatID(reinserted.id));
+      refreshBlocks();
+      triggerAutoSave();
+    }
+  }, [canEdit, handleTextChange, refreshBlocks, triggerAutoSave]);
+
   // Typography Toolbar Handlers
   const handleFontChange = useCallback(
     (fontFamily: string) => {
       setActiveFont(fontFamily);
       const selection = window.getSelection();
-      const hasTextSelected = selection && selection.rangeCount > 0 && !selection.isCollapsed;
+      let hasTextSelected = selection && selection.rangeCount > 0 && !selection.isCollapsed;
+      let targetBlockKey = activeBlockId;
+
+      if (!hasTextSelected && lastSavedRangeRef.current && !lastSavedRangeRef.current.range.collapsed) {
+        try {
+          selection?.removeAllRanges();
+          selection?.addRange(lastSavedRangeRef.current.range);
+          hasTextSelected = true;
+          targetBlockKey = lastSavedRangeRef.current.blockId || targetBlockKey;
+        } catch {}
+      }
 
       if (hasTextSelected) {
         const applied = applyFontFamilyToSelection(fontFamily);
@@ -722,22 +846,34 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             document.execCommand("fontName", false, fontFamily);
           } catch {}
         }
-        if (activeBlockId) {
-          const el = document.getElementById(`block-${activeBlockId}`);
+        if (targetBlockKey) {
+          const el = document.getElementById(`block-${targetBlockKey}`);
           if (el) {
             const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
             if (editable) {
               const newHtml = editable.innerHTML;
               const newMarkdown = htmlToMarkdown(newHtml);
-              const foundBlock = blocksState.find((b) => formatID(b.id) === activeBlockId);
+              const foundBlock = blocksState.find((b) => formatID(b.id) === targetBlockKey);
               if (foundBlock) {
                 handleTextChange(foundBlock.id, newMarkdown);
               }
             }
           }
         }
-      } else {
-        setDocumentFont(fontFamily);
+      } else if (targetBlockKey) {
+        const el = document.getElementById(`block-${targetBlockKey}`);
+        if (el) {
+          const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+          if (editable) {
+            editable.style.fontFamily = fontFamily;
+            const newHtml = editable.innerHTML;
+            const newMarkdown = htmlToMarkdown(newHtml);
+            const foundBlock = blocksState.find((b) => formatID(b.id) === targetBlockKey);
+            if (foundBlock) {
+              handleTextChange(foundBlock.id, newMarkdown);
+            }
+          }
+        }
       }
     },
     [activeBlockId, blocksState, handleTextChange]
@@ -814,7 +950,11 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
 
       switch (action) {
         case "undo":
-          document.execCommand("undo");
+          if (blockUndoStackRef.current.length > 0) {
+            handleUndoBlockOp();
+          } else {
+            document.execCommand("undo");
+          }
           break;
         case "redo":
           document.execCommand("redo");
@@ -902,7 +1042,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           break;
       }
     },
-    [activeBlockId, canEdit, handleAddBlock, handleChangeBlockType]
+    [activeBlockId, canEdit, handleAddBlock, handleChangeBlockType, handleUndoBlockOp]
   );
 
   // Perform meaningful Merkle Commit
@@ -1302,79 +1442,276 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     [canEdit]
   );
 
-  // Seamless arrow navigation between blocks
-  const handleNavigatePrev = useCallback((blockKey: string) => {
-    const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
-    if (idx > 0) {
-      const prevKey = formatID(blocksState[idx - 1].id);
-      setActiveBlockId(prevKey);
-      const el = document.getElementById(`block-${prevKey}`);
-      if (el) {
-        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+  // Seamless arrow navigation between blocks skipping media and page breaks
+  const handleNavigatePrev = useCallback(
+    (blockKey: string) => {
+      const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
+      if (idx <= 0) return;
+
+      for (let i = idx - 1; i >= 0; i--) {
+        const targetBlock = blocksState[i];
+        const targetKey = formatID(targetBlock.id);
+        const el = document.getElementById(`block-${targetKey}`);
+        if (!el) continue;
+
+        const editable = el.querySelector(
+          '[contenteditable="true"], textarea, input'
+        ) as HTMLElement | null;
         if (editable) {
+          setActiveBlockId(targetKey);
           editable.focus({ preventScroll: true });
-          const range = document.createRange();
-          range.selectNodeContents(editable);
-          range.collapse(false);
-          const sel = window.getSelection();
-          if (sel) {
-            sel.removeAllRanges();
-            sel.addRange(range);
+          if (
+            editable.tagName.toLowerCase() !== "textarea" &&
+            editable.tagName.toLowerCase() !== "input"
+          ) {
+            const range = document.createRange();
+            range.selectNodeContents(editable);
+            range.collapse(false);
+            const sel = window.getSelection();
+            if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
           }
+          return;
+        } else {
+          setActiveBlockId(targetKey);
+          el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          return;
         }
       }
-    }
-  }, [blocksState]);
+    },
+    [blocksState]
+  );
 
-  const handleNavigateNext = useCallback((blockKey: string) => {
-    const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
-    if (idx >= 0 && idx < blocksState.length - 1) {
-      const nextKey = formatID(blocksState[idx + 1].id);
-      setActiveBlockId(nextKey);
-      const el = document.getElementById(`block-${nextKey}`);
-      if (el) {
-        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+  const handleNavigateNext = useCallback(
+    (blockKey: string) => {
+      const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
+      if (idx < 0 || idx >= blocksState.length - 1) return;
+
+      for (let i = idx + 1; i < blocksState.length; i++) {
+        const targetBlock = blocksState[i];
+        const targetKey = formatID(targetBlock.id);
+        const el = document.getElementById(`block-${targetKey}`);
+        if (!el) continue;
+
+        const editable = el.querySelector(
+          '[contenteditable="true"], textarea, input'
+        ) as HTMLElement | null;
         if (editable) {
+          setActiveBlockId(targetKey);
           editable.focus({ preventScroll: true });
-          const range = document.createRange();
-          range.selectNodeContents(editable);
-          range.collapse(true);
-          const sel = window.getSelection();
-          if (sel) {
-            sel.removeAllRanges();
-            sel.addRange(range);
+          if (
+            editable.tagName.toLowerCase() !== "textarea" &&
+            editable.tagName.toLowerCase() !== "input"
+          ) {
+            const range = document.createRange();
+            range.selectNodeContents(editable);
+            range.collapse(true);
+            const sel = window.getSelection();
+            if (sel) {
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
           }
+          return;
+        } else {
+          setActiveBlockId(targetKey);
+          el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          return;
         }
       }
-    }
-  }, [blocksState]);
+    },
+    [blocksState]
+  );
 
-  const handleMergeWithPrev = useCallback((blockKey: string, currentText: string) => {
-    const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
-    if (idx > 0) {
+  const handleMergeWithPrev = useCallback(
+    (blockKey: string, currentText: string) => {
+      const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
+      if (idx <= 0) return;
+
       const prevBlock = blocksState[idx - 1];
       const currentBlock = blocksState[idx];
       const doc = docRef.current;
       if (!doc) return;
 
+      // Case 1: Previous block is a page-break -> remove the break, leave text block safe!
+      if (prevBlock.blockType === "page-break") {
+        handleDeleteBlock(prevBlock.id, false);
+        return;
+      }
+
+      // Case 2: Previous block is non-text (image, table, etc.) -> do NOT destroy user's text!
+      const isPrevText = [
+        "paragraph",
+        "heading-1",
+        "heading-2",
+        "heading-3",
+        "bullet-list",
+        "numbered-list",
+        "todo",
+        "quote",
+        "callout",
+        "code-block",
+      ].includes(prevBlock.blockType);
+
+      if (!isPrevText) {
+        const prevKey = formatID(prevBlock.id);
+        setActiveBlockId(prevKey);
+        return;
+      }
+
+      // Case 3: Merge text of current block into previous block
       const prevText = doc.getBlockText(prevBlock.id);
       const combined = prevText + currentText;
-      handleTextChange(prevBlock.id, combined);
-      handleDeleteBlock(currentBlock.id);
 
+      // Update CRDT
+      handleTextChange(prevBlock.id, combined);
+
+      // Immediately update DOM of prevBlock and place caret at merge boundary (prevText.length)
       const prevKey = formatID(prevBlock.id);
       setActiveBlockId(prevKey);
       const el = document.getElementById(`block-${prevKey}`);
       if (el) {
         const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
         if (editable) {
-          editable.focus({ preventScroll: true });
+          editable.innerHTML = markdownToHtml(combined);
+          setTimeout(() => {
+            setCaretAtCharOffset(editable, prevText.length);
+          }, 0);
         }
       }
-    }
-  }, [blocksState, handleDeleteBlock, handleTextChange]);
 
-  // Global Ctrl+V clipboard image paste
+      // Push undo record for Ctrl+Z
+      blockUndoStackRef.current.push({
+        type: "merge",
+        prevBlockId: prevBlock.id,
+        currentBlockId: currentBlock.id,
+        currentBlockType: currentBlock.blockType,
+        prevText,
+        currentText,
+      });
+
+      // Safely delete current block now that text is securely merged
+      handleDeleteBlock(currentBlock.id, false);
+    },
+    [blocksState, handleDeleteBlock, handleTextChange]
+  );
+
+  // Multi-block Selection Handlers
+  const handleSelectBlockRange = useCallback(
+    (startKey: string, endKey: string) => {
+      const startIdx = blocksState.findIndex((b) => formatID(b.id) === startKey);
+      const endIdx = blocksState.findIndex((b) => formatID(b.id) === endKey);
+      if (startIdx === -1 || endIdx === -1) return;
+
+      const [minIdx, maxIdx] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
+      const rangeKeys = blocksState.slice(minIdx, maxIdx + 1).map((b) => formatID(b.id));
+      setSelectedBlockIds(rangeKeys);
+    },
+    [blocksState]
+  );
+
+  const handleClearMultiSelection = useCallback(() => {
+    setSelectedBlockIds([]);
+  }, []);
+
+  // Multi-block Keyboard Shortcuts (Copy, Delete, Clear)
+  useEffect(() => {
+    const handleMultiSelectKeys = (e: KeyboardEvent) => {
+      if (selectedBlockIds.length <= 1) return;
+
+      // Copy multi-block text
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        const text = selectedBlockIds.map((k) => blockTexts[k] ?? "").join("\n\n");
+        navigator.clipboard.writeText(text);
+        return;
+      }
+
+      // Cut / Delete multi-block
+      if (
+        e.key === "Backspace" ||
+        e.key === "Delete" ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x")
+      ) {
+        e.preventDefault();
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
+          const text = selectedBlockIds.map((k) => blockTexts[k] ?? "").join("\n\n");
+          navigator.clipboard.writeText(text);
+        }
+        const [firstKey, ...restKeys] = selectedBlockIds;
+        for (const k of restKeys) {
+          const b = blocksState.find((x) => formatID(x.id) === k);
+          if (b) handleDeleteBlock(b.id, false);
+        }
+        const firstB = blocksState.find((x) => formatID(x.id) === firstKey);
+        if (firstB) {
+          handleTextChange(firstB.id, "");
+          const el = document.getElementById(`block-${firstKey}`);
+          if (el) {
+            const ed = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
+            if (ed) {
+              ed.innerHTML = "";
+              ed.focus();
+            }
+          }
+        }
+        setSelectedBlockIds([]);
+        return;
+      }
+
+      if (e.key === "Escape") {
+        setSelectedBlockIds([]);
+      }
+    };
+
+    window.addEventListener("keydown", handleMultiSelectKeys);
+    return () => window.removeEventListener("keydown", handleMultiSelectKeys);
+  }, [selectedBlockIds, blockTexts, blocksState, handleDeleteBlock, handleTextChange]);
+
+  // Global Ctrl+Z block undo handler
+  useEffect(() => {
+    const handleGlobalUndo = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        if (blockUndoStackRef.current.length > 0) {
+          e.preventDefault();
+          handleUndoBlockOp();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleGlobalUndo);
+    return () => window.removeEventListener("keydown", handleGlobalUndo);
+  }, [handleUndoBlockOp]);
+
+  // Drag-and-drop image file onto document sheet
+  const handleDropImage = useCallback(
+    async (file: File) => {
+      if (!canEdit) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      if (documentId) formData.append("documentId", documentId);
+
+      try {
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const caption = file.name.replace(/\.[^/.]+$/, "");
+          const imageMd = `![${caption}|width=100%|align=center](${data.url})`;
+          const afterId = activeBlockId ? parseID(activeBlockId) : null;
+          handleAddBlock("image", imageMd, afterId);
+        }
+      } catch (err) {
+        console.error("Drop image error:", err);
+      }
+    },
+    [canEdit, documentId, activeBlockId, handleAddBlock]
+  );
+
+  // Global Ctrl+V clipboard image paste & Drag-and-drop
   useEffect(() => {
     const handlePasteImage = async (e: ClipboardEvent) => {
       const items = e.clipboardData?.items;
@@ -1384,6 +1721,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         const item = items[i];
         if (item.type.startsWith("image/")) {
           e.preventDefault();
+          e.stopPropagation();
           const file = item.getAsFile();
           if (!file) continue;
 
@@ -1412,34 +1750,32 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       }
     };
 
-    document.addEventListener("paste", handlePasteImage);
-    return () => document.removeEventListener("paste", handlePasteImage);
-  }, [documentId, activeBlockId, handleAddBlock]);
-
-  // Drag-and-drop image file onto document sheet
-  const handleDropImage = useCallback(async (file: File) => {
-    if (!canEdit) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    if (documentId) formData.append("documentId", documentId);
-
-    try {
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        credentials: "include",
-        body: formData,
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const caption = file.name.replace(/\.[^/.]+$/, "");
-        const imageMd = `![${caption}|width=100%|align=center](${data.url})`;
-        const afterId = activeBlockId ? parseID(activeBlockId) : null;
-        handleAddBlock("image", imageMd, afterId);
+    const handleWindowDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "copy";
       }
-    } catch (err) {
-      console.error("Drop image error:", err);
-    }
-  }, [canEdit, documentId, activeBlockId, handleAddBlock]);
+    };
+
+    const handleWindowDrop = async (e: DragEvent) => {
+      const file = e.dataTransfer?.files?.[0];
+      if (file && file.type.startsWith("image/")) {
+        e.preventDefault();
+        e.stopPropagation();
+        handleDropImage(file);
+      }
+    };
+
+    document.addEventListener("paste", handlePasteImage, true);
+    window.addEventListener("dragover", handleWindowDragOver);
+    window.addEventListener("drop", handleWindowDrop);
+
+    return () => {
+      document.removeEventListener("paste", handlePasteImage, true);
+      window.removeEventListener("dragover", handleWindowDragOver);
+      window.removeEventListener("drop", handleWindowDrop);
+    };
+  }, [documentId, activeBlockId, handleAddBlock, handleDropImage]);
 
   const handleExportDocx = useCallback(async () => {
     const doc = docRef.current;
@@ -1671,6 +2007,9 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             onNavigatePrev={handleNavigatePrev}
             onNavigateNext={handleNavigateNext}
             onMergeWithPrev={handleMergeWithPrev}
+            selectedBlockIds={selectedBlockIds}
+            onSelectBlockRange={handleSelectBlockRange}
+            onClearMultiSelection={handleClearMultiSelection}
             remoteCursorsMap={remoteCursorsMap}
             onDropImage={handleDropImage}
             onSmartClick={handleSmartClick}
