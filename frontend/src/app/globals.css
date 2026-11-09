@@ -303,3 +303,31 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/*
+ * Universal text wrapping, word break, and overflow prevention for all editor content
+ */
+.editor-canvas {
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+.syncpro-editable-block,
+.syncpro-editable-block *,
+.editor-canvas p,
+.editor-canvas span,
+.editor-canvas h1,
+.editor-canvas h2,
+.editor-canvas h3,
+.editor-canvas blockquote,
+.editor-canvas li {
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  word-break: break-word !important;
+  max-width: 100% !important;
+}
+
+.syncpro-editable-block {
+  white-space: pre-wrap !important;
+}
+
