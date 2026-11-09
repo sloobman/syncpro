@@ -222,19 +222,47 @@
  * High-fidelity print & PDF styling for multi-page documents
  */
 @media print {
-  body {
+  @page {
+    margin: 15mm 20mm;
+    size: auto;
+  }
+
+  body, html {
     background: white !important;
     color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   header,
   nav,
   footer,
   aside,
-  .print\:hidden,
   button,
-  .editor-canvas-ui {
+  .print\:hidden,
+  .editor-canvas-ui,
+  .editor-ui-control,
+  .syncpro-topbar,
+  .syncpro-toolbar,
+  .syncpro-sidebar,
+  .syncpro-statusbar,
+  [role="toolbar"],
+  [role="menu"],
+  [role="dialog"],
+  [role="tooltip"] {
     display: none !important;
+  }
+
+  .origin-top {
+    transform: none !important;
+    width: 100% !important;
+    gap: 0 !important;
+  }
+
+  .editor-canvas {
+    overflow: visible !important;
   }
 
   [id^="document-page-"] {
@@ -243,6 +271,8 @@
     margin: 0 !important;
     page-break-after: always !important;
     break-after: page !important;
+    width: 100% !important;
+    min-height: auto !important;
   }
 
   [data-page-break="true"] {
