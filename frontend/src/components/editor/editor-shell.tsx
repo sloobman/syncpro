@@ -14,6 +14,7 @@ import { CommitDialog } from "@/components/editor/commit-dialog";
 import { DiffViewer } from "@/components/editor/diff-viewer";
 import { applyFontSizeToSelection, applyFontFamilyToSelection, htmlToMarkdown, markdownToHtml, type RemoteCursorInfo } from "@/components/editor/block-editor-item";
 import { PagedCanvas } from "@/components/editor/paged-canvas";
+import { EditorErrorBoundary } from "@/components/editor/editor-error-boundary";
 import { DEFAULT_PAGE_LAYOUT, type PageLayoutConfig } from "@/lib/types/page-layout";
 import { DocumentConverter } from "@/lib/documents/document-converter";
 import { FontManager } from "@/lib/fonts/font-manager";
@@ -347,7 +348,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     const doc = new CRDTDocument(1);
     docRef.current = doc;
 
-    const initialContent = savedContent || (documentId === "doc_1" ? store.getDocumentContent("doc_1") : `# ${docTitle}\n\nНачните редактирование документа...`);
+    const initialContent = savedContent || (documentId === "doc_1" ? store.getDocumentContent("doc_1") : `# ${docTitle}\n\n`);
     branchContentsRef.current["main"] = initialContent;
     initCRDTFromMarkdown(doc, initialContent);
 
@@ -882,7 +883,23 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const handleSizeChange = useCallback(
     (size: string) => {
       setActiveSize(size);
-      const applied = applyFontSizeToSelection(size);
+      const targetRange = lastSavedRangeRef.current?.range;
+      const applied = applyFontSizeToSelection(size, targetRange);
+      if (applied) {
+        lastSavedRangeRef.current = null;
+        if (activeBlockId) {
+          const el = document.getElementById(`block-${activeBlockId}`);
+          const editable = el?.querySelector('[contenteditable="true"]') as HTMLElement | null;
+          if (editable) {
+            const newMarkdown = htmlToMarkdown(editable.innerHTML);
+            const foundBlock = blocksState.find((b) => formatID(b.id) === activeBlockId);
+            if (foundBlock) {
+              handleTextChange(foundBlock.id, newMarkdown);
+            }
+          }
+        }
+        return;
+      }
       if (!applied && activeBlockId) {
         const el = document.getElementById(`block-${activeBlockId}`);
         if (el) {
@@ -1991,8 +2008,9 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             </div>
           )}
 
-          <PagedCanvas
-            blocks={blocksState}
+          <EditorErrorBoundary>
+            <PagedCanvas
+              blocks={blocksState}
             blockTexts={blockTexts}
             pageConfig={pageLayout}
             canEdit={canEdit}
@@ -2039,6 +2057,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             }}
             onAddPage={handleAddPage}
           />
+          </EditorErrorBoundary>
         </div>
 
         {/* Right collapsible sidebar */}

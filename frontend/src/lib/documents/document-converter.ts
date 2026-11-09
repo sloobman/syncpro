@@ -149,11 +149,29 @@ export class DocumentConverter {
         return null; // Reject dangerous schemes: file:, javascript:, ftp:, gopher:, blob:, etc.
       }
 
-      const fetchUrl = isRelative && typeof window !== "undefined" ? `${window.location.origin}${url}` : url;
-      const res = await fetch(fetchUrl, {
+      let fetchUrl: string;
+      if (isRelative) {
+        fetchUrl = typeof window !== "undefined" ? `${window.location.origin}${url}` : url;
+      } else {
+        // External HTTP/HTTPS URL: proxy through local endpoint in browser to avoid CSP connect-src violations and CORS
+        if (typeof window !== "undefined") {
+          fetchUrl = `${window.location.origin}/api/proxy-image?url=${encodeURIComponent(url)}`;
+        } else {
+          fetchUrl = url;
+        }
+      }
+
+      let res = await fetch(fetchUrl, {
         signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return null;
+      }).catch(() => null);
+
+      // Fallback: if proxy failed or returned non-ok in browser, try direct fetch if possible
+      if (!res || !res.ok) {
+        if (fetchUrl !== url) {
+          res = await fetch(url, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+        }
+      }
+      if (!res || !res.ok) return null;
 
       const contentLength = res.headers.get("content-length");
       if (contentLength && parseInt(contentLength, 10) > 15 * 1024 * 1024) {
