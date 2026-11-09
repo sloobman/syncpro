@@ -106,7 +106,24 @@ const HIGHLIGHT_COLORS = [
   { name: "Лавандовый", value: "#e9d5ff", bg: "bg-purple-200" },
 ];
 
-const FONT_SIZES = ["12px", "14px", "16px", "18px", "20px", "24px", "28px", "32px", "36px"];
+const FONT_SIZES = [
+  "8px",
+  "9px",
+  "10px",
+  "11px",
+  "12px",
+  "14px",
+  "16px",
+  "18px",
+  "20px",
+  "24px",
+  "28px",
+  "32px",
+  "36px",
+  "48px",
+  "72px",
+  "96px",
+];
 
 export function EditorToolbar({
   onAction,

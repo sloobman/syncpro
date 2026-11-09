@@ -36,6 +36,9 @@ export interface PagedCanvasProps {
   onMergeWithPrev?: (blockKey: string, currentText: string) => void;
   remoteCursorsMap?: Record<string, RemoteCursorInfo[]>;
   onDropImage?: (file: File, pageIndex: number) => void;
+  selectedBlockIds?: string[];
+  onSelectBlockRange?: (startKey: string, endKey: string) => void;
+  onClearMultiSelection?: () => void;
 }
 
 interface PageGroup {
@@ -67,6 +70,9 @@ export function PagedCanvas({
   onMergeWithPrev,
   remoteCursorsMap,
   onDropImage,
+  selectedBlockIds,
+  onSelectBlockRange,
+  onClearMultiSelection,
 }: PagedCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -181,6 +187,7 @@ export function PagedCanvas({
    * Handle Smart Click (Click and Type) on the page sheet
    */
   const handleSheetClick = (e: React.MouseEvent<HTMLDivElement>, pageIndex: number) => {
+    onClearMultiSelection?.();
     // 1. If mouse was dragged during text selection, do not trigger smart click!
     if (isDraggingRef.current) {
       isDraggingRef.current = false;
@@ -318,9 +325,8 @@ export function PagedCanvas({
               >
                 {/* Content Blocks for this Page */}
                 <div
-                  className="w-full min-w-0 max-w-full flex flex-col"
+                  className="w-full min-w-0 max-w-full block flow-root"
                   style={{
-                    gap: `${pageConfig.paragraphSpacing ?? 8}px`,
                     lineHeight: "inherit",
                     letterSpacing: "inherit",
                   }}
@@ -328,15 +334,37 @@ export function PagedCanvas({
                   {page.blocks.map((block) => {
                     const bKey = formatID(block.id);
                     const text = blockTexts[bKey] ?? "";
+                    const isMultiSelected = selectedBlockIds?.includes(bKey);
 
                     return (
-                      <div key={bKey} id={`block-${bKey}`}>
+                      <div
+                        key={bKey}
+                        id={`block-${bKey}`}
+                        style={{
+                          marginBottom: `${pageConfig.paragraphSpacing ?? 8}px`,
+                        }}
+                        className={`transition-all ${
+                          isMultiSelected
+                            ? "ring-2 ring-primary/60 bg-primary/10 rounded-xl p-1"
+                            : ""
+                        }`}
+                        onClick={(e) => {
+                          if (e.shiftKey && activeBlockId) {
+                            e.preventDefault();
+                            onSelectBlockRange?.(activeBlockId, bKey);
+                          }
+                        }}
+                      >
                         <BlockEditorItem
                           block={block}
                           text={text}
                           canEdit={canEdit}
                           isActive={activeBlockId === bKey}
-                          onFocus={() => onFocusBlock(bKey)}
+                          onFocus={() => {
+                            if (!selectedBlockIds?.length) {
+                              onFocusBlock(bKey);
+                            }
+                          }}
                           onChangeText={(newText) => onChangeText(bKey, newText)}
                           onChangeType={(newType) => onChangeType(bKey, newType)}
                           onDelete={() => onDeleteBlock(bKey)}
