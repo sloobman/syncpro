@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { DocumentConverter } from "@/lib/documents/document-converter";
 
 const templates = [
   {
@@ -81,33 +82,29 @@ export function CreateDocumentDialog({
     }
   };
 
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setLoading(true);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const content = event.target?.result as string;
-      const docTitle = file.name.replace(/\.[^/.]+$/, "");
+    try {
+      const converted = await DocumentConverter.importFile(file);
+      const newDoc = await createDocument({
+        title: converted.title || file.name.replace(/\.[^/.]+$/, ""),
+        workspaceId,
+        content: converted.markdown,
+      });
 
-      try {
-        const newDoc = await createDocument({
-          title: docTitle,
-          workspaceId,
-          content,
-        });
-
-        setOpen(false);
-        router.push(`/doc/${newDoc.id}`);
-      } catch (err) {
-        console.error("Failed to import document:", err);
-      } finally {
-        setLoading(false);
+      setOpen(false);
+      router.push(`/doc/${newDoc.id}`);
+    } catch (err) {
+      console.error("Failed to import document:", err);
+    } finally {
+      setLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
       }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
+    }
   };
 
   return (
@@ -115,7 +112,7 @@ export function CreateDocumentDialog({
       <input
         type="file"
         ref={fileInputRef}
-        accept=".md,.markdown,.txt"
+        accept=".docx,.odt,.md,.markdown,.txt"
         className="hidden"
         onChange={handleImportFile}
       />
@@ -147,7 +144,7 @@ export function CreateDocumentDialog({
                   </div>
                   <div>
                     <p className="text-xs font-semibold text-foreground">Загрузить готовый документ</p>
-                    <p className="text-[11px] text-muted-foreground">Поддерживаются файлы .md, .markdown, .txt</p>
+                    <p className="text-[11px] text-muted-foreground">Поддерживаются файлы .docx, .odt, .md, .txt</p>
                   </div>
                 </div>
                 <Button

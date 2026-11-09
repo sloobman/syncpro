@@ -26,8 +26,10 @@ import {
   AlignJustify,
   Highlighter,
   Plus,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -43,6 +45,12 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BUILT_IN_FONTS, type FontItem, normalizeFontFamily, matchFontFamily, FontManager } from "@/lib/fonts/font-manager";
 import { CustomFontDialog } from "@/components/editor/custom-font-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { LayoutToolbar } from "./layout-toolbar";
 import { SpacingPopover } from "./spacing-popover";
 import { LinkDialog } from "./link-dialog";
@@ -170,21 +178,30 @@ export function EditorToolbar({
     }
   };
 
-  const allSizes = useMemo(() => {
-    const list = [...FONT_SIZES];
-    if (currentSize && !list.includes(currentSize)) {
-      list.push(currentSize);
-    }
-    return list;
+    const [editingSize, setEditingSize] = useState<string | null>(null);
+
+  const currentSizeInt = useMemo(() => {
+    const num = parseInt(currentSize || "16", 10);
+    return isNaN(num) ? "16" : String(num);
   }, [currentSize]);
 
-  const matchedSize = useMemo(() => {
-    if (!currentSize) return "16px";
-    if (FONT_SIZES.includes(currentSize)) return currentSize;
-    const num = parseInt(currentSize, 10);
-    const found = FONT_SIZES.find((s) => parseInt(s, 10) === num);
-    return found || currentSize;
-  }, [currentSize]);
+  const sizeInputValue = editingSize ?? currentSizeInt;
+
+  const commitSizeChange = (valStr: string) => {
+    setEditingSize(null);
+    let num = parseInt(valStr, 10);
+    if (isNaN(num) || num < 1) num = 16;
+    if (num > 200) num = 200;
+    handleSizeSelect(`${num}px`);
+  };
+
+  const handleStepSize = (delta: number) => {
+    setEditingSize(null);
+    let num = parseInt(sizeInputValue, 10);
+    if (isNaN(num)) num = 16;
+    num = Math.max(1, Math.min(200, num + delta));
+    handleSizeSelect(`${num}px`);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -489,23 +506,73 @@ export function EditorToolbar({
           </Select>
         </div>
 
-        {/* Font Size Selector */}
-        <div className="flex items-center shrink-0">
-          <Select value={matchedSize} onValueChange={handleSizeSelect}>
-            <SelectTrigger
-              className="h-7 text-xs w-[68px] px-1.5 border-border/70 hover:border-border font-medium cursor-pointer"
-              onMouseDown={preventBlur}
-            >
-              <SelectValue placeholder="Кегль" />
-            </SelectTrigger>
-            <SelectContent>
-              {allSizes.map((size) => (
-                <SelectItem key={size} value={size} className="text-xs">
-                  {size}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* Font Size Selector with free manual input and presets */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            tabIndex={-1}
+            onClick={() => handleStepSize(-1)}
+            className="h-7 w-5 text-muted-foreground hover:text-foreground cursor-pointer px-0 font-bold"
+            title="Уменьшить кегль"
+          >
+            -
+          </Button>
+          <div className="relative flex items-center">
+            <Input
+              type="text"
+              value={sizeInputValue}
+              onChange={(e) => setEditingSize(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitSizeChange(sizeInputValue);
+                }
+              }}
+              onBlur={() => commitSizeChange(sizeInputValue)}
+              className="h-7 text-xs w-[38px] text-center px-0.5 font-medium border-border/70 focus:border-primary"
+              title="Кегль шрифта (любое число от 1 до 200)"
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            tabIndex={-1}
+            onClick={() => handleStepSize(1)}
+            className="h-7 w-5 text-muted-foreground hover:text-foreground cursor-pointer px-0 font-bold"
+            title="Увеличить кегль"
+          >
+            +
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                tabIndex={-1}
+                className="h-7 w-4 text-muted-foreground hover:text-foreground cursor-pointer px-0"
+                title="Выбрать кегль из списка"
+              >
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="max-h-60 overflow-y-auto">
+              {FONT_SIZES.map((sizeStr) => { const s = parseInt(sizeStr, 10); return (
+                <DropdownMenuItem
+                  key={s}
+                  onClick={() => {
+                    setEditingSize(null);
+                    handleSizeSelect(`${s}px`);
+                  }}
+                  className="text-xs cursor-pointer">
+                  {s} px
+                </DropdownMenuItem>
+              ); })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <Separator orientation="vertical" className="h-4 mx-0.5 shrink-0" />
