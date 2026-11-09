@@ -3,7 +3,7 @@
 import React, { useRef, useMemo } from "react";
 import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
 import { formatID } from "@/lib/crdt/id";
-import { BlockEditorItem } from "./block-editor-item";
+import { BlockEditorItem, type RemoteCursorInfo } from "./block-editor-item";
 import type { PageLayoutConfig } from "@/lib/types/page-layout";
 import {
   getPageDimensions,
@@ -31,6 +31,11 @@ export interface PagedCanvasProps {
   onSmartClick?: (pageIndex: number, align: "left" | "center" | "right", afterBlockId?: ID | null) => void;
   onDeletePageBreak?: (breakBlockId: string) => void;
   onAddPage?: () => void;
+  onNavigatePrev?: (blockKey: string) => void;
+  onNavigateNext?: (blockKey: string) => void;
+  onMergeWithPrev?: (blockKey: string, currentText: string) => void;
+  remoteCursorsMap?: Record<string, RemoteCursorInfo[]>;
+  onDropImage?: (file: File, pageIndex: number) => void;
 }
 
 interface PageGroup {
@@ -57,6 +62,11 @@ export function PagedCanvas({
   onSmartClick,
   onDeletePageBreak,
   onAddPage,
+  onNavigatePrev,
+  onNavigateNext,
+  onMergeWithPrev,
+  remoteCursorsMap,
+  onDropImage,
 }: PagedCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -282,6 +292,17 @@ export function PagedCanvas({
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const file = e.dataTransfer.files?.[0];
+                  if (file && file.type.startsWith("image/") && onDropImage) {
+                    onDropImage(file, idx);
+                  }
+                }}
                 className="bg-card text-foreground shadow-md hover:shadow-lg transition-all border border-border/70 rounded-xs relative editor-canvas cursor-text break-words [overflow-wrap:anywhere] overflow-hidden"
                 style={{
                   width: `${dim.widthPx}px`,
@@ -322,6 +343,10 @@ export function PagedCanvas({
                           onInsertAfter={(type) => onInsertAfter(bKey, type)}
                           onEnter={() => onEnter(bKey)}
                           onBackspaceEmpty={() => onBackspaceEmpty(bKey)}
+                          onNavigatePrev={() => onNavigatePrev?.(bKey)}
+                          onNavigateNext={() => onNavigateNext?.(bKey)}
+                          onMergeWithPrev={(curText) => onMergeWithPrev?.(bKey, curText)}
+                          remoteCursors={remoteCursorsMap?.[bKey]}
                           documentId={documentId}
                         />
                       </div>

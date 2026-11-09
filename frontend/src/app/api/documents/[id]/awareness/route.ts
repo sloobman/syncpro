@@ -18,8 +18,8 @@ export async function GET(
     const activeUsers = Object.entries(members).flatMap(([clientId, dataJson]) => {
       try {
         const parsed = JSON.parse(dataJson);
-        // Exclude users inactive for more than 15 seconds
-        if (now - (parsed.updatedAt || 0) > 15000) {
+        // Exclude users inactive for more than 10 seconds
+        if (now - (parsed.updatedAt || 0) > 10000) {
           expiredKeys.push(clientId);
           return [];
         }
@@ -81,31 +81,68 @@ export async function POST(
   const body = await request.json();
   const { clientId, state } = body;
 
-  if (!clientId || !state) {
-    return NextResponse.json({ error: "clientId and state required" }, { status: 400 });
+  if (!clientId) {
+    return NextResponse.json({ error: "clientId is required" }, { status: 400 });
   }
-
-  // Ensure state contains authenticated user's real identity if available
-  const userState = {
-    ...state,
-    user: {
-      id: user?.id || state.user?.id || clientId,
-      name: user?.name || state.user?.name || "Участник",
-      avatarUrl: (user as { avatarUrl?: string | null })?.avatarUrl || state.user?.avatarUrl || null,
-      color: state.user?.color || "bg-primary",
-    },
-    updatedAt: Date.now(),
-  };
 
   const key = `syncpro:awareness:${id}`;
   try {
     const redis = getRedisClient();
+
+    if (body.action === "leave" || state === null) {
+      await redis.hdel(key, String(clientId));
+      return NextResponse.json({ success: true, removed: clientId });
+    }
+
+    // Ensure state contains authenticated user's real identity if available
+    const userState = {
+      ...state,
+      user: {
+        id: user?.id || state?.user?.id || clientId,
+        name: user?.name || state?.user?.name || "Участник",
+        avatarUrl: (user as { avatarUrl?: string | null })?.avatarUrl || state?.user?.avatarUrl || null,
+        color: state?.user?.color || "bg-primary",
+      },
+      cursor: state?.cursor || null,
+      updatedAt: Date.now(),
+    };
+
     await redis.hset(key, String(clientId), JSON.stringify(userState));
     await redis.expire(key, 60);
 
     return NextResponse.json({ success: true, clientId, documentId: id });
   } catch (err) {
     console.warn(`[Awareness API] Redis save fallback:`, (err as Error).message);
+    return NextResponse.json({ success: true, fallback: true });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  let clientId = request.nextUrl.searchParams.get("clientId");
+  if (!clientId) {
+    try {
+      const body = await request.json();
+      clientId = body.clientId;
+    } catch {
+      // Body empty
+    }
+  }
+
+  if (!clientId) {
+    return NextResponse.json({ error: "clientId required" }, { status: 400 });
+  }
+
+  const key = `syncpro:awareness:${id}`;
+  try {
+    const redis = getRedisClient();
+    await redis.hdel(key, String(clientId));
+    return NextResponse.json({ success: true, removed: clientId });
+  } catch (err) {
+    console.warn(`[Awareness API] Redis delete error:`, (err as Error).message);
     return NextResponse.json({ success: true, fallback: true });
   }
 }

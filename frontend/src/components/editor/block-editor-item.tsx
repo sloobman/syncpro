@@ -44,6 +44,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 
+export interface RemoteCursorInfo {
+  name: string;
+  color: string;
+  offset: number;
+}
+
 interface BlockEditorItemProps {
   block: BlockNode;
   text: string;
@@ -56,6 +62,10 @@ interface BlockEditorItemProps {
   onInsertAfter: (type?: BlockType) => void;
   onEnter?: () => void;
   onBackspaceEmpty?: () => void;
+  onNavigatePrev?: () => void;
+  onNavigateNext?: () => void;
+  onMergeWithPrev?: (currentText: string) => void;
+  remoteCursors?: RemoteCursorInfo[];
   documentId?: string;
 }
 
@@ -422,6 +432,10 @@ export function BlockEditorItem({
   onInsertAfter,
   onEnter,
   onBackspaceEmpty,
+  onNavigatePrev,
+  onNavigateNext,
+  onMergeWithPrev,
+  remoteCursors,
   documentId,
 }: BlockEditorItemProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -564,20 +578,112 @@ export function BlockEditorItem({
       return;
     }
 
+    // TAB / SHIFT+TAB handling: indent/outdent without focusing toolbar or delete buttons!
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const isList =
+        block.blockType === "bullet-list" ||
+        block.blockType === "numbered-list" ||
+        block.blockType === "todo";
+
+      if (e.shiftKey) {
+        // Shift+Tab: Outdent
+        if (isList) {
+          if (text.startsWith("    ") || text.startsWith("\t")) {
+            onChangeText(text.replace(/^( {4}|\t)/, ""));
+          } else {
+            onChangeType("paragraph");
+          }
+        } else if (text.startsWith("    ") || text.startsWith("\t")) {
+          onChangeText(text.replace(/^( {4}|\t)/, ""));
+        }
+      } else {
+        // Tab: Indent
+        if (isList) {
+          onChangeText("    " + text);
+        } else {
+          if (typeof document !== "undefined") {
+            document.execCommand("insertText", false, "    ");
+          }
+        }
+      }
+      return;
+    }
+
+    // ENTER key handling in lists, headings and paragraphs
     if (e.key === "Enter" && !e.shiftKey) {
       if (
-        block.blockType === "paragraph" ||
-        block.blockType.startsWith("heading") ||
         block.blockType === "todo" ||
         block.blockType === "bullet-list" ||
         block.blockType === "numbered-list"
       ) {
+        e.preventDefault();
+        const clean = contentRef.current?.innerText.trim() || "";
+        const isEmptyItem =
+          clean === "" ||
+          (block.blockType === "todo" && (clean === "[ ]" || clean === "[x]" || clean === "[X]"));
+
+        if (isEmptyItem) {
+          // Double-Enter: exit list by converting to regular paragraph
+          onChangeType("paragraph");
+          onChangeText("");
+        } else {
+          // Create next list item of the SAME list type!
+          onInsertAfter?.(block.blockType);
+        }
+        return;
+      }
+
+      if (block.blockType.startsWith("heading")) {
+        e.preventDefault();
+        onInsertAfter?.("paragraph");
+        return;
+      }
+
+      if (block.blockType === "paragraph") {
         e.preventDefault();
         onEnter?.();
         return;
       }
     }
 
+    // Arrow navigation across blocks (ArrowUp / ArrowDown)
+    if (e.key === "ArrowUp") {
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (
+          range.startOffset === 0 &&
+          (range.startContainer === contentRef.current ||
+            range.startContainer === contentRef.current?.firstChild ||
+            !range.startContainer.previousSibling)
+        ) {
+          e.preventDefault();
+          onNavigatePrev?.();
+          return;
+        }
+      }
+    }
+
+    if (e.key === "ArrowDown") {
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const nodeText = range.endContainer.textContent || "";
+        if (
+          range.endOffset >= nodeText.length &&
+          (range.endContainer === contentRef.current ||
+            range.endContainer === contentRef.current?.lastChild ||
+            !range.endContainer.nextSibling)
+        ) {
+          e.preventDefault();
+          onNavigateNext?.();
+          return;
+        }
+      }
+    }
+
+    // Backspace: delete empty or merge with previous block if at start
     if (e.key === "Backspace") {
       const isContentEmpty =
         !contentRef.current ||
@@ -587,6 +693,21 @@ export function BlockEditorItem({
         e.preventDefault();
         onBackspaceEmpty?.();
         return;
+      }
+
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
+        const range = sel.getRangeAt(0);
+        if (
+          range.startOffset === 0 &&
+          (range.startContainer === contentRef.current ||
+            range.startContainer === contentRef.current?.firstChild ||
+            (range.startContainer.parentNode === contentRef.current && !range.startContainer.previousSibling))
+        ) {
+          e.preventDefault();
+          onMergeWithPrev?.(text);
+          return;
+        }
       }
     }
   };
@@ -674,8 +795,7 @@ export function BlockEditorItem({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity cursor-pointer shrink-0"
-          title="Сменить тип блока"
+          tabIndex={-1} className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity cursor-pointer shrink-0" title="Сменить тип блока"
         >
           {renderTypeIcon(block.blockType)}
         </button>
@@ -830,10 +950,7 @@ export function BlockEditorItem({
           <div className="flex-1 h-[1px] bg-border" />
         </div>
         {canEdit && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onDelete}
+          <Button variant="ghost" size="icon" tabIndex={-1} onClick={onDelete}
             className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer ml-2 shrink-0"
             title="Удалить разрыв страницы"
           >
@@ -860,10 +977,7 @@ export function BlockEditorItem({
         </div>
         <hr className="w-full border-t border-border/80 my-2" />
         {canEdit && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onDelete}
+          <Button variant="ghost" size="icon" tabIndex={-1} onClick={onDelete}
             className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer ml-2 shrink-0"
             title="Удалить разделитель"
           >
@@ -1056,10 +1170,11 @@ export function BlockEditorItem({
                 {headers.map((h, colIdx) => (
                   <th key={`th-${colIdx}`} style={{ padding: `${meta.padding}px` }} className={`${meta.borders === 'grid' ? 'border-r border-border last:border-r-0' : ''}`}>
                     {canEdit ? (
-                      <input
+                      <textarea
+                        rows={Math.max(1, (h || "").split("\n").length)}
                         value={h}
                         onChange={(e) => handleHeaderChange(colIdx, e.target.value)}
-                        className="w-full bg-transparent font-semibold focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1"
+                        className="w-full bg-transparent font-semibold focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1 resize-none overflow-hidden text-xs leading-normal"
                         placeholder={`Заголовок ${colIdx + 1}`}
                       />
                     ) : (
@@ -1082,10 +1197,11 @@ export function BlockEditorItem({
                       style={{ padding: `${meta.padding}px` }} className={`${meta.borders === 'grid' ? 'border-r border-border/70 last:border-r-0' : ''}`}
                     >
                       {canEdit ? (
-                        <input
+                        <textarea
+                          rows={Math.max(1, (cell || "").split("\n").length)}
                           value={cell}
                           onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
-                          className="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1 text-foreground"
+                          className="w-full bg-transparent focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1 text-foreground resize-none overflow-hidden text-xs leading-normal"
                           placeholder="..."
                         />
                       ) : (
@@ -1280,10 +1396,7 @@ export function BlockEditorItem({
                   >
                     Настройки
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onDelete}
+                  <Button variant="ghost" size="icon" tabIndex={-1} onClick={onDelete}
                     className="h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer"
                   >
                     <Trash2 className="h-3 w-3" />
@@ -1541,10 +1654,7 @@ export function BlockEditorItem({
         </div>
 
         {canEdit && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onDelete}
+          <Button variant="ghost" size="icon" tabIndex={-1} onClick={onDelete}
             className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer shrink-0"
             title="Удалить задачу"
           >
@@ -1584,10 +1694,7 @@ export function BlockEditorItem({
               )}
             </div>
             {canEdit && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onDelete}
+              <Button variant="ghost" size="icon" tabIndex={-1} onClick={onDelete}
                 className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer shrink-0"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -1636,10 +1743,7 @@ export function BlockEditorItem({
         </div>
 
         {canEdit && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onDelete}
+          <Button variant="ghost" size="icon" tabIndex={-1} onClick={onDelete}
             className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer shrink-0"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -1672,14 +1776,39 @@ export function BlockEditorItem({
       <div className="flex-1 min-w-0 relative">
         {floatingFormattingBar}
 
+
+        {/* Remote Collaborator Cursors rendered inside the block */}
+        {remoteCursors && remoteCursors.length > 0 && (
+          <div className="absolute inset-0 pointer-events-none overflow-visible z-20">
+            {remoteCursors.map((rc, idx) => (
+              <div
+                key={idx}
+                className="syncpro-remote-cursor-container"
+                style={{
+                  left: `${Math.min(98, Math.max(0, (rc.offset / Math.max(text.length, 1)) * 100))}%`,
+                  top: "2px",
+                }}
+              >
+                <span className="syncpro-remote-caret-bar" style={{ backgroundColor: rc.color }} />
+                <span className="syncpro-remote-caret-badge" style={{ backgroundColor: rc.color }}>
+                  {rc.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         {canEdit ? (
           <div
             ref={contentRef}
             contentEditable={canEdit}
             suppressContentEditableWarning
+            data-placeholder={
+              isH1 ? "Заголовок 1..." : isH2 ? "Заголовок 2..." : isH3 ? "Заголовок 3..." : "Начните вводить текст документа..."
+            }
+            data-empty={!text || text.trim() === "" ? "true" : "false"}
             onInput={handleContentInput}
             onKeyDown={handleEditableKeyDown}
-            className={`w-full max-w-full bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary/80 focus:outline-none py-1 min-h-[28px] ${typographyClass}`}
+            className={`syncpro-editable-block w-full max-w-full bg-transparent border-0 border-b border-transparent hover:border-border/60 focus:border-primary/80 focus:outline-none py-1 min-h-[28px] ${typographyClass}`}
           />
         ) : (
           <div className={`py-1 ${typographyClass}`}>
@@ -1693,9 +1822,7 @@ export function BlockEditorItem({
         <Button
           variant="ghost"
           size="icon"
-          onClick={onDelete}
-          className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer shrink-0 mt-1"
-          title="Удалить блок"
+          tabIndex={-1} onClick={onDelete} className="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 text-muted-foreground hover:text-destructive cursor-pointer shrink-0 mt-1" title="Удалить блок"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>

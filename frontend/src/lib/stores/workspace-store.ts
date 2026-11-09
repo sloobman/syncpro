@@ -108,7 +108,7 @@ function getTemplateContent(template?: string, title?: string): string {
     default:
       return `# ${docTitle}
 
-Начните вводить текст документа...`;
+`;
   }
 }
 
