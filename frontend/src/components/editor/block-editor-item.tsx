@@ -31,8 +31,8 @@ import {
   Scissors,
   AlignLeft,
   AlignCenter,
-  AlignRight,
   Maximize2,
+  WrapText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -243,7 +243,7 @@ export interface ParsedImage {
   caption: string;
   url: string;
   width: string;
-  align: "left" | "center" | "right" | "full";
+  align: "left" | "center" | "right" | "full" | "wrap-left" | "wrap-right";
 }
 
 // Table Markdown parser & serializer with styling metadata
@@ -334,7 +334,7 @@ function parseMarkdownImage(text: string): ParsedImage {
     const url = match[2] || "";
     let caption = rawCaption;
     let width = "100%";
-    let align: "left" | "center" | "right" | "full" = "center";
+    let align: ParsedImage["align"] = "center";
 
     if (rawCaption.includes("|")) {
       const parts = rawCaption.split("|");
@@ -345,7 +345,7 @@ function parseMarkdownImage(text: string): ParsedImage {
           width = p.replace("width=", "").trim();
         } else if (p.startsWith("align=")) {
           const a = p.replace("align=", "").trim() as ParsedImage["align"];
-          if (["left", "center", "right", "full"].includes(a)) {
+          if (["left", "center", "right", "full", "wrap-left", "wrap-right"].includes(a)) {
             align = a;
           }
         }
@@ -379,6 +379,22 @@ function parseTodo(text: string): { done: boolean; task: string } {
   return { done: false, task: text };
 }
 
+
+export function isCaretAtStart(container: HTMLElement, range: Range): boolean {
+  if (range.startOffset === 0) {
+    if (range.startContainer === container || range.startContainer === container.firstChild) {
+      return true;
+    }
+  }
+  try {
+    const preRange = document.createRange();
+    preRange.selectNodeContents(container);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    return preRange.toString().length === 0;
+  } catch {
+    return false;
+  }
+}
 
 export function applyFontFamilyToSelection(fontFamily: string): boolean {
   if (typeof window === "undefined") return false;
@@ -457,6 +473,55 @@ export function BlockEditorItem({
     setImageCaptionInput(parsedImage.caption);
     setIsEditingImage(true);
     setUploadError(null);
+  };
+
+  const [liveWidth, setLiveWidth] = useState<string | null>(null);
+
+  const handleResizePointerDown = (
+    e: React.PointerEvent,
+    corner: "nw" | "ne" | "se" | "sw"
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const imgEl = e.currentTarget.parentElement as HTMLElement | null;
+    const parentContainer = imgEl?.parentElement as HTMLElement | null;
+    const parentWidth = parentContainer?.clientWidth || 700;
+    const currentPixelWidth = imgEl?.clientWidth || parentWidth;
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      const deltaX =
+        corner === "se" || corner === "ne"
+          ? moveEvent.clientX - startX
+          : startX - moveEvent.clientX;
+      const newPixelWidth = Math.max(120, Math.min(parentWidth, currentPixelWidth + deltaX));
+      const newPercent = Math.round((newPixelWidth / parentWidth) * 100);
+      setLiveWidth(`${newPercent}%`);
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      const deltaX =
+        corner === "se" || corner === "ne"
+          ? upEvent.clientX - startX
+          : startX - upEvent.clientX;
+      const newPixelWidth = Math.max(120, Math.min(parentWidth, currentPixelWidth + deltaX));
+      const newPercent = Math.max(20, Math.min(100, Math.round((newPixelWidth / parentWidth) * 100)));
+      onChangeText(
+        serializeMarkdownImage(
+          parsedImage.caption,
+          parsedImage.url,
+          `${newPercent}%`,
+          parsedImage.align
+        )
+      );
+      setLiveWidth(null);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
   };
 
   // Synchronize contentEditable DOM with external text prop
@@ -689,23 +754,18 @@ export function BlockEditorItem({
         !contentRef.current ||
         contentRef.current.innerText.trim() === "" ||
         contentRef.current.innerHTML === "<br>";
-      if (isContentEmpty && text === "") {
-        e.preventDefault();
-        onBackspaceEmpty?.();
-        return;
-      }
 
       const sel = typeof window !== "undefined" ? window.getSelection() : null;
-      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
+      if (sel && sel.rangeCount > 0 && sel.isCollapsed && contentRef.current) {
         const range = sel.getRangeAt(0);
-        if (
-          range.startOffset === 0 &&
-          (range.startContainer === contentRef.current ||
-            range.startContainer === contentRef.current?.firstChild ||
-            (range.startContainer.parentNode === contentRef.current && !range.startContainer.previousSibling))
-        ) {
+        if (isCaretAtStart(contentRef.current, range)) {
           e.preventDefault();
-          onMergeWithPrev?.(text);
+          if (isContentEmpty && text === "") {
+            onBackspaceEmpty?.();
+          } else {
+            const currentMarkdown = htmlToMarkdown(contentRef.current.innerHTML);
+            onMergeWithPrev?.(currentMarkdown || text);
+          }
           return;
         }
       }
@@ -1301,48 +1361,68 @@ export function BlockEditorItem({
 
         {url && !isEditingImage ? (
           <div
-            className="flex flex-col my-2 transition-all group/img"
+            className={`my-2 transition-all group/img relative ${
+              parsedImage.align === "wrap-left"
+                ? "float-left mr-5 mb-4 max-w-[60%] clear-none"
+                : parsedImage.align === "wrap-right"
+                ? "float-right ml-5 mb-4 max-w-[60%] clear-none"
+                : "clear-both flex flex-col"
+            }`}
             style={{
-              width: parsedImage.width || "100%",
-              marginLeft: parsedImage.align === "right" ? "auto" : parsedImage.align === "center" ? "auto" : "0",
-              marginRight: parsedImage.align === "left" ? "auto" : parsedImage.align === "center" ? "auto" : "0",
+              width: liveWidth || parsedImage.width || "100%",
+              marginLeft:
+                parsedImage.align === "right"
+                  ? "auto"
+                  : parsedImage.align === "center"
+                  ? "auto"
+                  : undefined,
+              marginRight:
+                parsedImage.align === "left"
+                  ? "auto"
+                  : parsedImage.align === "center"
+                  ? "auto"
+                  : undefined,
             }}
           >
             {/* Image Positioning & Sizing Toolbar */}
             {canEdit && (
               <div className="flex flex-wrap items-center justify-between gap-1 p-1 mb-1.5 rounded-lg border border-border/80 bg-background/95 backdrop-blur-md shadow-xs opacity-0 group-hover/img:opacity-100 focus-within:opacity-100 transition-opacity text-xs editor-ui-control">
-                {/* Alignment */}
+                {/* Alignment & Wrapping */}
                 <div className="flex items-center gap-0.5">
                   <Button
-                    variant={parsedImage.align === "left" ? "secondary" : "ghost"}
+                    variant={parsedImage.align === "wrap-left" ? "secondary" : "ghost"}
                     size="icon"
-                    onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, parsedImage.width, "left"))}
+                    tabIndex={-1}
+                    onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, parsedImage.width === "100%" ? "50%" : parsedImage.width, "wrap-left"))}
                     className="h-6 w-6 cursor-pointer"
-                    title="Выровнять по левому краю"
+                    title="Обтекание текстом слева"
                   >
-                    <AlignLeft className="h-3 w-3" />
+                    <WrapText className="h-3 w-3" />
                   </Button>
                   <Button
                     variant={parsedImage.align === "center" ? "secondary" : "ghost"}
                     size="icon"
+                    tabIndex={-1}
                     onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, parsedImage.width, "center"))}
                     className="h-6 w-6 cursor-pointer"
-                    title="По центру"
+                    title="По центру (без обтекания)"
                   >
                     <AlignCenter className="h-3 w-3" />
                   </Button>
                   <Button
-                    variant={parsedImage.align === "right" ? "secondary" : "ghost"}
+                    variant={parsedImage.align === "wrap-right" ? "secondary" : "ghost"}
                     size="icon"
-                    onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, parsedImage.width, "right"))}
+                    tabIndex={-1}
+                    onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, parsedImage.width === "100%" ? "50%" : parsedImage.width, "wrap-right"))}
                     className="h-6 w-6 cursor-pointer"
-                    title="По правому краю"
+                    title="Обтекание текстом справа"
                   >
-                    <AlignRight className="h-3 w-3" />
+                    <WrapText className="h-3 w-3 scale-x-[-1]" />
                   </Button>
                   <Button
                     variant={parsedImage.align === "full" ? "secondary" : "ghost"}
                     size="icon"
+                    tabIndex={-1}
                     onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, "100%", "full"))}
                     className="h-6 w-6 cursor-pointer"
                     title="На всю ширину листа"
@@ -1358,6 +1438,7 @@ export function BlockEditorItem({
                       key={w}
                       variant={parsedImage.width === w ? "secondary" : "ghost"}
                       size="sm"
+                      tabIndex={-1}
                       onClick={() => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, w, parsedImage.align))}
                       className="h-5 px-1 text-[10px] cursor-pointer"
                     >
@@ -1370,7 +1451,8 @@ export function BlockEditorItem({
                     min="20"
                     max="100"
                     step="5"
-                    value={parseInt(parsedImage.width) || 100}
+                    tabIndex={-1}
+                    value={parseInt(liveWidth || parsedImage.width) || 100}
                     onChange={(e) => onChangeText(serializeMarkdownImage(parsedImage.caption, parsedImage.url, `${e.target.value}%`, parsedImage.align))}
                     className="w-14 h-1 accent-primary cursor-pointer ml-1"
                     title="Ширина изображения"
@@ -1382,6 +1464,7 @@ export function BlockEditorItem({
                   <Button
                     variant="ghost"
                     size="sm"
+                    tabIndex={-1}
                     onClick={() => fileInputRef.current?.click()}
                     className="h-6 px-1.5 text-[10px] gap-1 cursor-pointer"
                   >
@@ -1391,6 +1474,7 @@ export function BlockEditorItem({
                   <Button
                     variant="ghost"
                     size="sm"
+                    tabIndex={-1}
                     onClick={handleOpenImageEditor}
                     className="h-6 px-1.5 text-[10px] cursor-pointer"
                   >
@@ -1406,12 +1490,36 @@ export function BlockEditorItem({
             )}
 
             <div
-              className="relative p-2 rounded-2xl bg-muted/20 border border-border/80 flex flex-col items-center cursor-pointer"
+              className="relative p-2 rounded-2xl bg-muted/20 border border-border/80 flex flex-col items-center cursor-pointer select-none"
               onClick={(e) => {
                 e.stopPropagation();
                 onFocus?.();
               }}
             >
+              {canEdit && (
+                <>
+                  <div
+                    onPointerDown={(e) => handleResizePointerDown(e, "nw")}
+                    className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-primary border-2 border-background rounded-full shadow-md cursor-nwse-resize z-30 opacity-80 hover:opacity-100 hover:scale-125 transition-all"
+                    title="Потяните для изменения размера"
+                  />
+                  <div
+                    onPointerDown={(e) => handleResizePointerDown(e, "ne")}
+                    className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-primary border-2 border-background rounded-full shadow-md cursor-nesw-resize z-30 opacity-80 hover:opacity-100 hover:scale-125 transition-all"
+                    title="Потяните для изменения размера"
+                  />
+                  <div
+                    onPointerDown={(e) => handleResizePointerDown(e, "se")}
+                    className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-primary border-2 border-background rounded-full shadow-md cursor-nwse-resize z-30 opacity-80 hover:opacity-100 hover:scale-125 transition-all"
+                    title="Потяните для изменения размера"
+                  />
+                  <div
+                    onPointerDown={(e) => handleResizePointerDown(e, "sw")}
+                    className="absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-primary border-2 border-background rounded-full shadow-md cursor-nesw-resize z-30 opacity-80 hover:opacity-100 hover:scale-125 transition-all"
+                    title="Потяните для изменения размера"
+                  />
+                </>
+              )}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={url}
@@ -1420,7 +1528,7 @@ export function BlockEditorItem({
                   e.stopPropagation();
                   onFocus?.();
                 }}
-                className="max-h-[560px] w-full rounded-xl object-contain shadow-xs transition-all cursor-pointer"
+                className="max-h-[560px] w-full rounded-xl object-contain shadow-xs transition-all cursor-pointer pointer-events-auto"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).src =
                     "https://placehold.co/600x400/e2e8f0/475569?text=Изображение+не+найдено";
