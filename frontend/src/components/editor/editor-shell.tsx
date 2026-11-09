@@ -1454,10 +1454,20 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         const el = document.getElementById(`block-${targetKey}`);
         if (!el) continue;
 
-        const editable = el.querySelector(
-          '[contenteditable="true"], textarea, input'
-        ) as HTMLElement | null;
-        if (editable) {
+        // Find all visible editable elements in this target block
+        const candidates = Array.from(
+          el.querySelectorAll<HTMLElement>(
+            '[contenteditable="true"], textarea, input:not([type="file"]):not([type="hidden"]):not(.hidden)'
+          )
+        ).filter(
+          (elem) =>
+            elem.offsetWidth > 0 ||
+            elem.offsetHeight > 0 ||
+            elem.offsetParent !== null
+        );
+
+        if (candidates.length > 0) {
+          const editable = candidates[candidates.length - 1]; // Last editable when going backward
           setActiveBlockId(targetKey);
           editable.focus({ preventScroll: true });
           if (
@@ -1466,7 +1476,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           ) {
             const range = document.createRange();
             range.selectNodeContents(editable);
-            range.collapse(false);
+            range.collapse(false); // End of block text
             const sel = window.getSelection();
             if (sel) {
               sel.removeAllRanges();
@@ -1474,11 +1484,9 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             }
           }
           return;
-        } else {
-          setActiveBlockId(targetKey);
-          el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-          return;
         }
+        // If block has no visible editable inputs (e.g. image, divider, page break),
+        // keep scanning backwards to land on the nearest editable text block!
       }
     },
     [blocksState]
@@ -1495,10 +1503,20 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         const el = document.getElementById(`block-${targetKey}`);
         if (!el) continue;
 
-        const editable = el.querySelector(
-          '[contenteditable="true"], textarea, input'
-        ) as HTMLElement | null;
-        if (editable) {
+        // Find all visible editable elements in this target block
+        const candidates = Array.from(
+          el.querySelectorAll<HTMLElement>(
+            '[contenteditable="true"], textarea, input:not([type="file"]):not([type="hidden"]):not(.hidden)'
+          )
+        ).filter(
+          (elem) =>
+            elem.offsetWidth > 0 ||
+            elem.offsetHeight > 0 ||
+            elem.offsetParent !== null
+        );
+
+        if (candidates.length > 0) {
+          const editable = candidates[0]; // First editable when going forward
           setActiveBlockId(targetKey);
           editable.focus({ preventScroll: true });
           if (
@@ -1507,7 +1525,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           ) {
             const range = document.createRange();
             range.selectNodeContents(editable);
-            range.collapse(true);
+            range.collapse(true); // Beginning of block text
             const sel = window.getSelection();
             if (sel) {
               sel.removeAllRanges();
@@ -1515,11 +1533,9 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
             }
           }
           return;
-        } else {
-          setActiveBlockId(targetKey);
-          el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-          return;
         }
+        // If block has no visible editable inputs (e.g. image, divider, page break),
+        // keep scanning forwards to land on the nearest editable text block!
       }
     },
     [blocksState]
