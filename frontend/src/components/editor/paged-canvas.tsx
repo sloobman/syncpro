@@ -4,6 +4,7 @@ import React, { useRef, useMemo } from "react";
 import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
 import { formatID } from "@/lib/crdt/id";
 import { BlockEditorItem, type RemoteCursorInfo } from "./block-editor-item";
+import { EditorErrorBoundary } from "./editor-error-boundary";
 import type { PageLayoutConfig } from "@/lib/types/page-layout";
 import {
   getPageDimensions,
@@ -79,6 +80,23 @@ export function PagedCanvas({
   const dim = getPageDimensions(pageConfig);
   const margins = getPageMargins(pageConfig);
   const availableHeightPx = dim.heightPx - margins.top - margins.bottom;
+
+  // Precompute sequential numbering for contiguous numbered list blocks
+  const listIndices = useMemo(() => {
+    const indices: Record<string, number> = {};
+    let currentNumber = 1;
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      const key = formatID(b.id);
+      if (b.blockType === "numbered-list") {
+        indices[key] = currentNumber;
+        currentNumber++;
+      } else {
+        currentNumber = 1;
+      }
+    }
+    return indices;
+  }, [blocks]);
 
   /**
    * Distribute blocks across pages based on:
@@ -256,7 +274,7 @@ export function PagedCanvas({
     >
       {/* Zoom scaling wrapper */}
       <div
-        className="flex flex-col items-center gap-8 transition-transform duration-150 origin-top"
+        className="flex flex-col items-center gap-8 transition-transform duration-150 origin-top print:transform-none print:w-full print:gap-0"
         style={{
           transform: `scale(${pageConfig.zoom})`,
           width: `${dim.widthPx}px`,
@@ -310,7 +328,7 @@ export function PagedCanvas({
                     onDropImage(file, idx);
                   }
                 }}
-                className="bg-card text-foreground shadow-md hover:shadow-lg transition-all border border-border/70 rounded-xs relative editor-canvas cursor-text break-words [overflow-wrap:anywhere] overflow-hidden"
+                className="bg-card text-foreground shadow-md hover:shadow-lg transition-all border border-border/70 rounded-xs relative editor-canvas cursor-text break-words [overflow-wrap:anywhere] overflow-hidden print:shadow-none print:border-none print:p-0 print:m-0 print:w-full print:overflow-visible"
                 style={{
                   width: `${dim.widthPx}px`,
                   minHeight: `${dim.heightPx}px`,
@@ -337,6 +355,7 @@ export function PagedCanvas({
                     const isMultiSelected = selectedBlockIds?.includes(bKey);
 
                     return (
+                      <EditorErrorBoundary key={bKey}>
                       <div
                         key={bKey}
                         id={`block-${bKey}`}
@@ -376,8 +395,10 @@ export function PagedCanvas({
                           onMergeWithPrev={(curText) => onMergeWithPrev?.(bKey, curText)}
                           remoteCursors={remoteCursorsMap?.[bKey]}
                           documentId={documentId}
+                          listIndex={listIndices[bKey] ?? 1}
                         />
-                      </div>
+                        </div>
+                      </EditorErrorBoundary>
                     );
                   })}
                 </div>

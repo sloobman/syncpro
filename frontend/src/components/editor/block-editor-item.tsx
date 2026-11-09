@@ -67,6 +67,7 @@ interface BlockEditorItemProps {
   onMergeWithPrev?: (currentText: string) => void;
   remoteCursors?: RemoteCursorInfo[];
   documentId?: string;
+  listIndex?: number;
 }
 
 /**
@@ -396,11 +397,16 @@ export function isCaretAtStart(container: HTMLElement, range: Range): boolean {
   }
 }
 
-export function applyFontFamilyToSelection(fontFamily: string): boolean {
+export function applyFontFamilyToSelection(fontFamily: string, targetRange?: Range | null): boolean {
   if (typeof window === "undefined") return false;
   const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
-  const range = selection.getRangeAt(0);
+  let range = targetRange;
+  if (!range || range.collapsed) {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+    range = selection.getRangeAt(0);
+  }
+  if (!range || range.collapsed) return false;
+
   const span = document.createElement("span");
   span.style.fontFamily = fontFamily;
   try {
@@ -408,19 +414,26 @@ export function applyFontFamilyToSelection(fontFamily: string): boolean {
     range.insertNode(span);
     const newRange = document.createRange();
     newRange.selectNodeContents(span);
-    selection.removeAllRanges();
-    selection.addRange(newRange);
+    if (selection) {
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+    }
     return true;
   } catch {
     return false;
   }
 }
 
-export function applyFontSizeToSelection(size: string): boolean {
+export function applyFontSizeToSelection(size: string, targetRange?: Range | null): boolean {
   if (typeof window === "undefined") return false;
   const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
-  const range = selection.getRangeAt(0);
+  let range = targetRange;
+  if (!range || range.collapsed) {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
+    range = selection.getRangeAt(0);
+  }
+  if (!range || range.collapsed) return false;
+
   const span = document.createElement("span");
   span.style.fontSize = size;
   try {
@@ -428,8 +441,10 @@ export function applyFontSizeToSelection(size: string): boolean {
     range.insertNode(span);
     const newRange = document.createRange();
     newRange.selectNodeContents(span);
-    selection.removeAllRanges();
-    selection.addRange(newRange);
+    if (selection) {
+      selection.removeAllRanges();
+      selection.addRange(newRange);
+    }
     return true;
   } catch {
     return false;
@@ -453,6 +468,7 @@ export function BlockEditorItem({
   onMergeWithPrev,
   remoteCursors,
   documentId,
+  listIndex,
 }: BlockEditorItemProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1826,7 +1842,7 @@ export function BlockEditorItem({
 
         <div className="pt-1.5 shrink-0 flex items-center justify-center w-5">
           {isNumbered ? (
-            <span className="text-xs font-semibold text-primary">1.</span>
+            <span className="text-xs font-semibold text-primary">{listIndex ?? 1}.</span>
           ) : (
             <span className="h-1.5 w-1.5 rounded-full bg-primary" />
           )}
