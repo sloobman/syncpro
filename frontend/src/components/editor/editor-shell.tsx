@@ -1454,16 +1454,18 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         const el = document.getElementById(`block-${targetKey}`);
         if (!el) continue;
 
-        // Find all visible editable elements in this target block
+        // Find all visible editable text elements in this target block (exclude range sliders, buttons, file pickers)
         const candidates = Array.from(
           el.querySelectorAll<HTMLElement>(
-            '[contenteditable="true"], textarea, input:not([type="file"]):not([type="hidden"]):not(.hidden)'
+            '[contenteditable="true"], textarea, input[type="text"], input:not([type])'
           )
         ).filter(
           (elem) =>
-            elem.offsetWidth > 0 ||
-            elem.offsetHeight > 0 ||
-            elem.offsetParent !== null
+            !elem.closest(".editor-ui-control") &&
+            !elem.closest(".editor-canvas-ui") &&
+            (elem.offsetWidth > 0 ||
+              elem.offsetHeight > 0 ||
+              elem.offsetParent !== null)
         );
 
         if (candidates.length > 0) {
@@ -1503,16 +1505,18 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         const el = document.getElementById(`block-${targetKey}`);
         if (!el) continue;
 
-        // Find all visible editable elements in this target block
+        // Find all visible editable text elements in this target block (exclude range sliders, buttons, file pickers)
         const candidates = Array.from(
           el.querySelectorAll<HTMLElement>(
-            '[contenteditable="true"], textarea, input:not([type="file"]):not([type="hidden"]):not(.hidden)'
+            '[contenteditable="true"], textarea, input[type="text"], input:not([type])'
           )
         ).filter(
           (elem) =>
-            elem.offsetWidth > 0 ||
-            elem.offsetHeight > 0 ||
-            elem.offsetParent !== null
+            !elem.closest(".editor-ui-control") &&
+            !elem.closest(".editor-canvas-ui") &&
+            (elem.offsetWidth > 0 ||
+              elem.offsetHeight > 0 ||
+              elem.offsetParent !== null)
         );
 
         if (candidates.length > 0) {
