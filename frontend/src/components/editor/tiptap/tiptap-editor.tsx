@@ -85,8 +85,11 @@ export const TiptapEditor = forwardRef<TiptapEditorRef, TiptapEditorProps>(funct
       },
     }),
     Image.configure({
-      inline: true,
+      inline: false,
       allowBase64: true,
+      HTMLAttributes: {
+        class: "syncpro-editor-image rounded-md my-4 max-w-full h-auto cursor-pointer border border-border shadow-xs",
+      },
     }),
     PageBreak,
     ...(yDoc
@@ -114,6 +117,66 @@ export const TiptapEditor = forwardRef<TiptapEditorRef, TiptapEditorProps>(funct
     extensions,
     content: yDoc ? undefined : initialContent || { type: "doc", content: [{ type: "paragraph" }] },
     editable,
+    editorProps: {
+      attributes: {
+        class: "focus:outline-none min-h-[500px]",
+      },
+      handlePaste: (view, event) => {
+        const items = event.clipboardData?.items;
+        if (items) {
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.type.startsWith("image/")) {
+              const file = item.getAsFile();
+              if (file) {
+                event.preventDefault();
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                  const src = e.target?.result as string;
+                  if (src && view.state) {
+                    const { schema } = view.state;
+                    const node = schema.nodes.image?.create({ src });
+                    if (node) {
+                      const tr = view.state.tr.replaceSelectionWith(node);
+                      view.dispatch(tr);
+                    }
+                  }
+                };
+                reader.readAsDataURL(file);
+                return true;
+              }
+            }
+          }
+        }
+        return false;
+      },
+      handleDrop: (view, event) => {
+        const files = event.dataTransfer?.files;
+        if (files && files.length > 0) {
+          const file = files[0];
+          if (file.type.startsWith("image/")) {
+            event.preventDefault();
+            const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const src = e.target?.result as string;
+              if (src && view.state) {
+                const { schema } = view.state;
+                const node = schema.nodes.image?.create({ src });
+                if (node) {
+                  const pos = coordinates ? coordinates.pos : view.state.selection.from;
+                  const tr = view.state.tr.insert(pos, node);
+                  view.dispatch(tr);
+                }
+              }
+            };
+            reader.readAsDataURL(file);
+            return true;
+          }
+        }
+        return false;
+      },
+    },
     onUpdate: ({ editor }) => {
       if (onUpdate) {
         onUpdate({

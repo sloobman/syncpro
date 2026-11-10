@@ -8,6 +8,34 @@ export interface FontItem {
 }
 
 export const BUILT_IN_FONTS: FontItem[] = [
+  {
+    id: "arial",
+    name: "Arial",
+    family: "Arial, Helvetica, sans-serif",
+    category: "sans",
+    sourceType: "system",
+  },
+  {
+    id: "times-new-roman",
+    name: "Times New Roman",
+    family: "'Times New Roman', Times, serif",
+    category: "serif",
+    sourceType: "system",
+  },
+  {
+    id: "impact",
+    name: "Impact",
+    family: "Impact, Charcoal, sans-serif",
+    category: "sans",
+    sourceType: "system",
+  },
+  {
+    id: "courier-new",
+    name: "Courier New",
+    family: "'Courier New', Courier, monospace",
+    category: "mono",
+    sourceType: "system",
+  },
   // Sans-Serif
   {
     id: "inter",
@@ -130,6 +158,9 @@ export class FontManager {
     if (!baseFamily || this.loadedFamilies.has(baseFamily)) return;
 
     this.loadedFamilies.add(baseFamily);
+    // Do not attempt to load system fonts from remote networks
+    if (font.sourceType === "system") return;
+
 
     if (font.sourceType === "google" && font.fileUrl) {
       // Validate Google Fonts URL scheme
