@@ -125,6 +125,7 @@ export async function POST(
       ops: ops || [],
       cursor: cursor || null,
       delta: delta || null,
+      json: body.json || null,
       timestamp: Date.now(),
     });
 
