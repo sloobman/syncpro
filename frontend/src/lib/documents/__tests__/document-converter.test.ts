@@ -179,3 +179,102 @@ test("DocumentConverter sanitizes title against Zip Slip / path traversal in Mar
   }
   assert.ok(files.some((f) => f.endsWith("etc_evil_file.md") && !f.includes("..")));
 });
+test("DocumentConverter exports Tiptap AST JSON to valid DOCX blob", async () => {
+  const title = "Tiptap Monolithic Document";
+  const json = {
+    type: "doc",
+    content: [
+      {
+        type: "heading",
+        attrs: { level: 1 },
+        content: [{ type: "text", text: "Глава 1: Введение" }],
+      },
+      {
+        type: "paragraph",
+        attrs: { textAlign: "center" },
+        content: [
+          { type: "text", text: "Обычный текст с " },
+          { type: "text", marks: [{ type: "bold" }], text: "жирным начертанием" },
+          { type: "text", text: " и " },
+          { type: "text", marks: [{ type: "italic" }, { type: "underline" }], text: "курсивным подчеркиванием." },
+        ],
+      },
+      {
+        type: "bulletList",
+        content: [
+          {
+            type: "listItem",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Пункт A" }] }],
+          },
+          {
+            type: "listItem",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "Пункт B" }] }],
+          },
+        ],
+      },
+      {
+        type: "table",
+        content: [
+          {
+            type: "tableRow",
+            content: [
+              { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Заголовок 1" }] }] },
+              { type: "tableHeader", content: [{ type: "paragraph", content: [{ type: "text", text: "Заголовок 2" }] }] },
+            ],
+          },
+          {
+            type: "tableRow",
+            content: [
+              { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "Ячейка 1" }] }] },
+              { type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "Ячейка 2" }] }] },
+            ],
+          },
+        ],
+      },
+      {
+        type: "pageBreak",
+      },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "Текст на второй странице." }],
+      },
+    ],
+  };
+
+  const blob = await DocumentConverter.exportTiptapToDocx(json, title);
+  assert.ok(blob instanceof Blob);
+  assert.ok(blob.size > 500, "DOCX blob from Tiptap AST should be non-empty");
+});
+
+test("DocumentConverter exports Tiptap AST JSON to compliant ODT package", async () => {
+  const title = "Tiptap ODT Export";
+  const json = {
+    type: "doc",
+    content: [
+      {
+        type: "heading",
+        attrs: { level: 2 },
+        content: [{ type: "text", text: "Раздел ODT" }],
+      },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "Параграф для проверки OpenDocument." }],
+      },
+      {
+        type: "pageBreak",
+      },
+    ],
+  };
+
+  const blob = await DocumentConverter.exportTiptapToOdt(json, title);
+  assert.ok(blob instanceof Blob);
+
+  const arrayBuffer = await blob.arrayBuffer();
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  assert.ok(zip.file("mimetype"), "ODT must contain mimetype");
+  assert.ok(zip.file("content.xml"), "ODT must contain content.xml");
+
+  const contentXml = await zip.file("content.xml")?.async("text");
+  assert.ok(contentXml?.includes("Раздел ODT"));
+  assert.ok(contentXml?.includes("Параграф для проверки OpenDocument."));
+});

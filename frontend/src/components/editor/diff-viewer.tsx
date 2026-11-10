@@ -15,6 +15,31 @@ interface DiffViewerProps {
   className?: string;
 }
 
+
+function extractTextForDiff(str: string): string {
+  if (!str) return "";
+  try {
+    const parsed = JSON.parse(str);
+    if (parsed && parsed.type === "doc") {
+      const extract = (node: Record<string, unknown> | null | undefined): string => {
+        if (!node) return "";
+        if (node.type === "text") return (node.text as string) || "";
+        if (node.type === "pageBreak") return "\n[--- Разрыв страницы ---]\n";
+        if (node.content && Array.isArray(node.content)) {
+          const inner = (node.content as Record<string, unknown>[]).map(extract).join(node.type === "tableRow" ? " | " : "");
+          if (node.type === "paragraph" || node.type === "heading" || node.type === "tableRow") {
+            return inner + "\n";
+          }
+          return inner;
+        }
+        return "";
+      };
+      return extract(parsed).trim();
+    }
+  } catch {}
+  return cleanHtmlTags(str);
+}
+
 function cleanHtmlTags(str: string): string {
   if (!str) return "";
   return str
@@ -42,11 +67,11 @@ export function DiffViewer({
   const [showRawSource, setShowRawSource] = useState(false);
 
   const processedOld = useMemo(() => {
-    return showRawSource ? oldText : cleanHtmlTags(oldText);
+    return showRawSource ? oldText : extractTextForDiff(oldText);
   }, [oldText, showRawSource]);
 
   const processedNew = useMemo(() => {
-    return showRawSource ? newText : cleanHtmlTags(newText);
+    return showRawSource ? newText : extractTextForDiff(newText);
   }, [newText, showRawSource]);
 
   const groups = useMemo(() => {

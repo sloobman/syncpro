@@ -24,6 +24,7 @@ export interface PageLayoutConfig {
   lineHeight?: number | string; // default 1.5
   paragraphSpacing?: number; // default 8 px
   letterSpacing?: string; // default "normal"
+  pageless?: boolean; // default false (paged A4)
 }
 
 export interface PageDimension {
@@ -214,4 +215,5 @@ export const DEFAULT_PAGE_LAYOUT: PageLayoutConfig = {
   lineHeight: 1.5,
   paragraphSpacing: 8,
   letterSpacing: "normal",
+  pageless: false,
 };

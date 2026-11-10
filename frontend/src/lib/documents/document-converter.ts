@@ -11,9 +11,13 @@ import {
   AlignmentType,
   ImageRun,
   ExternalHyperlink,
+  PageBreak,
 } from "docx";
 import JSZip from "jszip";
+import type { JSONContent } from "@tiptap/react";
 import mammoth from "mammoth";
+import type { PageLayoutConfig } from "@/lib/types/page-layout";
+import { DEFAULT_PAGE_LAYOUT, getPageDimensions, getPageMargins } from "@/lib/types/page-layout";
 
 export interface ConvertedDocument {
   title: string;
@@ -836,4 +840,349 @@ ${manifestEntries}
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&apos;");
   }
+  /**
+   * Helper to convert Tiptap inline content nodes to docx TextRuns or Hyperlinks
+   */
+  private static tiptapInlineToDocxRuns(content?: JSONContent[]): (TextRun | ExternalHyperlink)[] {
+    if (!content || !Array.isArray(content) || content.length === 0) {
+      return [new TextRun("")];
+    }
+
+    const runs: (TextRun | ExternalHyperlink)[] = [];
+
+    for (const node of content) {
+      if (node.type === "text") {
+        const text = (node.text as string) || "";
+        const marks = (node.marks as Array<{ type: string; attrs?: Record<string, string> }>) || [];
+
+        let bold = false;
+        let italics = false;
+        let underline: { type: "single" } | undefined = undefined;
+        let strike = false;
+        let font: { name: string } | undefined = undefined;
+        let size: number | undefined = undefined;
+        let color: string | undefined = undefined;
+        let linkHref: string | null = null;
+
+        for (const m of marks) {
+          if (m.type === "bold") bold = true;
+          if (m.type === "italic") italics = true;
+          if (m.type === "underline") underline = { type: "single" };
+          if (m.type === "strike") strike = true;
+          if (m.type === "link" && m.attrs?.href) linkHref = m.attrs.href;
+          if (m.type === "textStyle") {
+            if (m.attrs?.fontFamily) font = { name: m.attrs.fontFamily };
+            if (m.attrs?.color && m.attrs.color !== "inherit") {
+              color = m.attrs.color.replace("#", "");
+            }
+            if (m.attrs?.fontSize) {
+              const num = parseInt(m.attrs.fontSize, 10);
+              if (!isNaN(num) && num > 0) {
+                // Docx uses half-points (1 pt = 2 half-points)
+                size = Math.round(num * 1.5);
+              }
+            }
+          }
+        }
+
+        const run = new TextRun({
+          text: String(text),
+          bold,
+          italics,
+          underline,
+          strike,
+          font,
+          size,
+          color,
+        });
+
+        if (linkHref) {
+          runs.push(
+            new ExternalHyperlink({
+              link: linkHref,
+              children: [run],
+            })
+          );
+        } else {
+          runs.push(run);
+        }
+      } else if (node.type === "hardBreak") {
+        runs.push(new TextRun({ break: 1 }));
+      }
+    }
+
+    return runs.length > 0 ? runs : [new TextRun("")];
+  }
+
+  /**
+   * Direct high-fidelity converter from Tiptap AST JSON to Microsoft Word (.docx).
+   */
+  static async exportTiptapToDocx(
+    json: JSONContent,
+    title: string = "Документ",
+    pageConfig?: PageLayoutConfig
+  ): Promise<Blob> {
+    const layout = pageConfig || DEFAULT_PAGE_LAYOUT;
+    const margins = getPageMargins(layout);
+    const dim = getPageDimensions(layout);
+
+    // Convert pixel margins & dimensions to twips (1 px approx 15 twips, 1 inch = 1440 twips)
+    const pxToTwip = 15;
+    const topMarginTwip = Math.round(margins.top * pxToTwip);
+    const bottomMarginTwip = Math.round(margins.bottom * pxToTwip);
+    const leftMarginTwip = Math.round(margins.left * pxToTwip);
+    const rightMarginTwip = Math.round(margins.right * pxToTwip);
+    const widthTwip = Math.round(dim.widthPx * pxToTwip);
+    const heightTwip = Math.round(dim.heightPx * pxToTwip);
+
+    const docChildren: (Paragraph | DocxTable)[] = [];
+    const content: JSONContent[] = json?.content || [];
+
+    for (const node of content) {
+      if (node.type === "heading") {
+        const level = node.attrs?.level || 1;
+        const headingLevel =
+          level === 1
+            ? HeadingLevel.HEADING_1
+            : level === 2
+            ? HeadingLevel.HEADING_2
+            : HeadingLevel.HEADING_3;
+
+        docChildren.push(
+          new Paragraph({
+            heading: headingLevel,
+            children: this.tiptapInlineToDocxRuns(node.content),
+            spacing: { before: 240, after: 120 },
+          })
+        );
+      } else if (node.type === "paragraph") {
+        let alignment: (typeof AlignmentType)[keyof typeof AlignmentType] = AlignmentType.LEFT;
+        const alignAttr = (node.attrs as Record<string, string>)?.textAlign;
+        if (alignAttr === "center") alignment = AlignmentType.CENTER;
+        if (alignAttr === "right") alignment = AlignmentType.RIGHT;
+        if (alignAttr === "justify") alignment = AlignmentType.JUSTIFIED;
+
+        docChildren.push(
+          new Paragraph({
+            alignment,
+            children: this.tiptapInlineToDocxRuns(node.content),
+            spacing: { after: 120 },
+          })
+        );
+      } else if (node.type === "bulletList") {
+        for (const item of node.content || []) {
+          for (const p of item.content || []) {
+            docChildren.push(
+              new Paragraph({
+                bullet: { level: 0 },
+                children: this.tiptapInlineToDocxRuns(p.content),
+                spacing: { after: 80 },
+              })
+            );
+          }
+        }
+      } else if (node.type === "orderedList") {
+        let idx = 1;
+        for (const item of node.content || []) {
+          for (const p of item.content || []) {
+            docChildren.push(
+              new Paragraph({
+                children: [
+                  new TextRun({ text: `${idx}. `, bold: true }),
+                  ...this.tiptapInlineToDocxRuns(p.content),
+                ],
+                spacing: { after: 80 },
+              })
+            );
+            idx++;
+          }
+        }
+      } else if (node.type === "blockquote") {
+        for (const p of node.content || []) {
+          docChildren.push(
+            new Paragraph({
+              indent: { left: 720 },
+              children: this.tiptapInlineToDocxRuns(p.content),
+              spacing: { before: 120, after: 120 },
+            })
+          );
+        }
+      } else if (node.type === "codeBlock") {
+        const codeText = ((node.content as Record<string, unknown>[]) || []).map((c) => (c.text as string) || "").join("");
+        docChildren.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: codeText,
+                font: { name: "Consolas" },
+                size: 20,
+              }),
+            ],
+            spacing: { before: 120, after: 120 },
+          })
+        );
+      } else if (node.type === "table") {
+        const tableRows: TableRow[] = [];
+        for (const row of node.content || []) {
+          const cells: TableCell[] = [];
+          for (const cell of row.content || []) {
+            const cellChildren: Paragraph[] = [];
+            for (const p of cell.content || []) {
+              cellChildren.push(
+                new Paragraph({
+                  children: this.tiptapInlineToDocxRuns(p.content),
+                })
+              );
+            }
+            cells.push(
+              new TableCell({
+                children: cellChildren.length > 0 ? cellChildren : [new Paragraph("")],
+                shading: cell.type === "tableHeader" ? { fill: "F1F5F9" } : undefined,
+              })
+            );
+          }
+          tableRows.push(new TableRow({ children: cells }));
+        }
+
+        if (tableRows.length > 0) {
+          docChildren.push(
+            new DocxTable({
+              rows: tableRows,
+              alignment: AlignmentType.CENTER,
+              width: { size: 100, type: WidthType.PERCENTAGE },
+            })
+          );
+        }
+      } else if (node.type === "image" && node.attrs?.src) {
+        const resolved = await this.resolveImageBuffer(node.attrs.src);
+        if (resolved) {
+          const maxWidth = 550;
+          const targetW = maxWidth;
+          const aspect = resolved.width > 0 && resolved.height > 0 ? resolved.width / resolved.height : 1.5;
+          let targetH = Math.round(targetW / aspect);
+          if (targetH > 680) targetH = 680;
+
+          docChildren.push(
+            new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [
+                new ImageRun({
+                  data: resolved.data,
+                  transformation: { width: targetW, height: targetH },
+                  type: "png",
+                }),
+              ],
+              spacing: { before: 140, after: 140 },
+            })
+          );
+        }
+      } else if (node.type === "pageBreak") {
+        docChildren.push(
+          new Paragraph({
+            children: [new PageBreak()],
+          })
+        );
+      }
+    }
+
+    const docx = new DocxDocument({
+      title,
+      sections: [
+        {
+          properties: {
+            page: {
+              size: {
+                width: widthTwip,
+                height: heightTwip,
+                orientation:
+                  layout.orientation === "landscape"
+                    ? undefined
+                    : undefined,
+              },
+              margin: {
+                top: topMarginTwip,
+                bottom: bottomMarginTwip,
+                left: leftMarginTwip,
+                right: rightMarginTwip,
+              },
+            },
+          },
+          children: docChildren.length > 0 ? docChildren : [new Paragraph("")],
+        },
+      ],
+    });
+
+    return await Packer.toBlob(docx);
+  }
+
+  /**
+   * Direct converter from Tiptap AST JSON to OpenDocument (.odt).
+   */
+  static async exportTiptapToOdt(
+    json: JSONContent,
+    _title?: string,
+    _pageConfig?: PageLayoutConfig
+  ): Promise<Blob> {
+    const zip = new JSZip();
+
+    zip.file("mimetype", "application/vnd.oasis.opendocument.text", { compression: "STORE" });
+
+    let bodyXml = "";
+    const content: JSONContent[] = json?.content || [];
+
+    for (const node of content) {
+      if (node.type === "heading") {
+        const level = node.attrs?.level || 1;
+        const text = (node.content || []).map((c) => c.text || "").join("");
+        bodyXml += `<text:h text:outline-level="${level}">${this.escapeXml(text)}</text:h>`;
+      } else if (node.type === "paragraph") {
+        const text = ((node.content as Record<string, unknown>[]) || []).map((c) => (c.text as string) || "").join("");
+        bodyXml += `<text:p>${this.escapeXml(text)}</text:p>`;
+      } else if (node.type === "bulletList") {
+        bodyXml += "<text:list>";
+        for (const item of node.content || []) {
+          for (const p of item.content || []) {
+            const text = (p.content || []).map((c) => c.text || "").join("");
+            bodyXml += `<text:list-item><text:p>${this.escapeXml(text)}</text:p></text:list-item>`;
+          }
+        }
+        bodyXml += "</text:list>";
+      } else if (node.type === "orderedList") {
+        bodyXml += "<text:list>";
+        for (const item of node.content || []) {
+          for (const p of item.content || []) {
+            const text = ((p.content as Record<string, unknown>[]) || []).map((c) => (c.text as string) || "").join("");
+            bodyXml += `<text:list-item><text:p>${this.escapeXml(text)}</text:p></text:list-item>`;
+          }
+        }
+        bodyXml += "</text:list>";
+      } else if (node.type === "pageBreak") {
+        bodyXml += '<text:p><text:soft-page-break/></text:p>';
+      }
+    }
+
+    const contentXml = `<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+  office:version="1.3">
+  <office:body>
+    <office:text>
+      ${bodyXml}
+    </office:text>
+  </office:body>
+</office:document-content>`;
+
+    zip.file("content.xml", contentXml);
+
+    const manifestXml = `<?xml version="1.0" encoding="UTF-8"?>
+<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3">
+  <manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/>
+  <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
+</manifest:manifest>`;
+
+    zip.folder("META-INF")?.file("manifest.xml", manifestXml);
+
+    return await zip.generateAsync({ type: "blob", mimeType: "application/vnd.oasis.opendocument.text" });
+  }
+
 }
