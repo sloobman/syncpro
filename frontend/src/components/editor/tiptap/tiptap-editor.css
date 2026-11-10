@@ -66,11 +66,11 @@
 }
 
 .tiptap blockquote {
-  border-left: 3px solid var(--border);
+  border-left: 3px solid hsl(var(--border));
   padding-left: 1rem;
   margin: 0.75rem 0;
   font-style: italic;
-  color: var(--muted-foreground);
+  color: hsl(var(--muted-foreground));
 }
 
 .tiptap ul {
@@ -103,8 +103,8 @@
 .tiptap table td,
 .tiptap table th {
   min-width: 1em;
-  border: 1px solid var(--border);
-  padding: 6px 8px;
+  border: 1px solid hsl(var(--border));
+  padding: 8px 12px;
   vertical-align: top;
   box-sizing: border-box;
   position: relative;
@@ -113,9 +113,9 @@
 }
 
 .tiptap pre {
-  background: var(--muted);
+  background: hsl(var(--muted));
   border-radius: 6px;
-  color: var(--foreground);
+  color: hsl(var(--foreground));
   font-family: monospace;
   padding: 0.75rem 1rem;
   margin: 0.75rem 0;
@@ -125,7 +125,7 @@
 }
 
 .tiptap code {
-  background-color: var(--muted);
+  background-color: hsl(var(--muted) / 0.6);
   border-radius: 4px;
   font-family: monospace;
   font-size: 0.85em;
@@ -136,7 +136,7 @@
 .tiptap table th {
   font-weight: 600;
   text-align: left;
-  background-color: var(--muted);
+  background-color: hsl(var(--muted));
 }
 
 .tiptap table .selectedCell:after {
@@ -228,6 +228,8 @@
 
 /* Inline Images */
 .tiptap img {
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   display: inline-block;
   max-width: 100%;
   height: auto;
