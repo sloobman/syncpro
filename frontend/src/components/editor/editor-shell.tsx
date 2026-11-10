@@ -160,6 +160,9 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const myColorRef = useRef<string>("#3b82f6");
   const branchContentsRef = useRef<Record<string, string>>({});
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isRemoteUpdateRef = useRef<boolean>(false);
+  const syncBroadcastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize client id and avatar color
   useEffect(() => {
@@ -281,6 +284,73 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     };
   }, [documentId, user]);
 
+  // Broadcast changes via Redis SSE sync
+  const broadcastSyncUpdate = useCallback(
+    (json: JSONContent) => {
+      if (syncBroadcastTimerRef.current) clearTimeout(syncBroadcastTimerRef.current);
+      syncBroadcastTimerRef.current = setTimeout(async () => {
+        try {
+          await fetch(`/api/documents/${documentId}/sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              clientId: clientIdRef.current,
+              json,
+              timestamp: Date.now(),
+            }),
+          });
+        } catch {}
+      }, 200);
+    },
+    [documentId]
+  );
+
+  // Subscribe to real-time SSE updates for concurrent multi-tab editing
+  useEffect(() => {
+    if (!documentId) return;
+    let es: EventSource | null = null;
+    let reconnectTimer: NodeJS.Timeout | null = null;
+
+    const setupEventSource = () => {
+      try {
+        es = new EventSource(`/api/documents/${documentId}/sync`);
+        es.addEventListener("crdt", (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.clientId === clientIdRef.current) return;
+            if (data.json && editor) {
+              isRemoteUpdateRef.current = true;
+              const pos = editor.state.selection.from;
+              editor.commands.setContent(data.json, false);
+              try {
+                const max = editor.state.doc.content.size;
+                editor.commands.setTextSelection(Math.min(pos, max));
+              } catch {}
+              isRemoteUpdateRef.current = false;
+              const text = editor.getText();
+              const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+              setStats({ words, chars: text.length });
+            }
+          } catch {}
+        });
+        es.onerror = () => {
+          if (es) {
+            es.close();
+            es = null;
+          }
+          reconnectTimer = setTimeout(setupEventSource, 4000);
+        };
+      } catch {}
+    };
+
+    setupEventSource();
+    return () => {
+      if (es) es.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, [documentId, editor]);
+
   // Debounced auto-save to backend
   const triggerAutoSave = useCallback(
     (jsonContentStr: string) => {
@@ -292,6 +362,13 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       saveTimeoutRef.current = setTimeout(async () => {
         try {
           useWorkspaceStore.getState().saveDocumentContent(documentId, jsonContentStr);
+          if (documentId === "demo") {
+            try {
+              localStorage.setItem("syncpro_demo_doc", jsonContentStr);
+            } catch {}
+            setSaveStatus("saved");
+            return;
+          }
           const res = await fetch(`/api/documents/${documentId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -318,11 +395,14 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       const chars = text.length;
       setStats({ words, chars });
 
+      if (isRemoteUpdateRef.current) return;
+
       const contentStr = JSON.stringify(json);
       branchContentsRef.current[activeBranch] = contentStr;
       triggerAutoSave(contentStr);
+      broadcastSyncUpdate(json);
     },
-    [activeBranch, triggerAutoSave]
+    [activeBranch, triggerAutoSave, broadcastSyncUpdate]
   );
 
   // Track selection for toolbar font & size indicators
@@ -405,13 +485,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
           break;
         case "image": {
-          const url = prompt(
-            "Введите адрес изображения (URL):",
-            "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=300"
-          );
-          if (url && url.trim()) {
-            editor.chain().focus().setImage({ src: url.trim() }).run();
-          }
+          imageInputRef.current?.click();
           break;
         }
         case "pagebreak":
@@ -553,8 +627,12 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         a.download = filename;
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          if (document.body.contains(a)) {
+            document.body.removeChild(a);
+          }
+          URL.revokeObjectURL(url);
+        }, 1500);
       };
 
       try {
@@ -604,6 +682,9 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const handleCreateBranch = useCallback(
     async (name: string) => {
       try {
+        const currentContent = editor ? JSON.stringify(editor.getJSON()) : (branchContentsRef.current[activeBranch] || "{}");
+        branchContentsRef.current[name] = currentContent;
+
         const res = await fetch(`/api/documents/${documentId}/branches`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -616,7 +697,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         }
       } catch {}
     },
-    [documentId, handleSelectBranch]
+    [documentId, editor, activeBranch, handleSelectBranch]
   );
 
   // Commit Creation
@@ -804,7 +885,12 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
               <TiptapEditor
                 initialContent={initialContent}
                 editable={canEdit && !isTimeTraveling}
-                onEditorReady={(ed) => setEditor(ed)}
+                onEditorReady={(ed) => {
+                setEditor(ed);
+                const text = ed.getText();
+                const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+                setStats({ words, chars: text.length });
+              }}
                 onUpdate={handleEditorUpdate}
                 onSelectionUpdate={handleSelectionUpdate}
               />

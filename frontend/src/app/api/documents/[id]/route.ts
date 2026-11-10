@@ -7,12 +7,43 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
+    if (id === "demo") {
+      return NextResponse.json({
+        document: {
+          id: "demo",
+          title: "Демо-документ SyncPro",
+          is_public: true,
+        },
+        content: JSON.stringify({
+          type: "doc",
+          content: [
+            {
+              type: "heading",
+              attrs: { level: 1 },
+              content: [{ type: "text", text: "Добро пожаловать в SyncPro!" }],
+            },
+            {
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  text: "Это интерактивный демонстрационный документ монолитного редактора. Попробуйте форматирование, таблицы, вставку изображений и совместную работу.",
+                },
+              ],
+            },
+          ],
+        }),
+        canEdit: true,
+        userRole: "editor",
+      });
+    }
+
     const user = getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
     }
 
-    const { id } = await params;
     const data = await WorkspaceRepository.getDocumentById(id, user.id);
     if (!data) {
       return NextResponse.json(
@@ -32,13 +63,15 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
+    if (id === "demo") {
+      return NextResponse.json({ success: true, savedAt: Date.now() });
+    }
+
     const user = getUserFromRequest(request);
     if (!user) {
       return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
     }
-
-    const { id } = await params;
-
     // Strict edit permission check
     const canEdit = await WorkspaceRepository.canUserEditDocument(id, user.id);
     if (!canEdit) {

@@ -11,12 +11,30 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  if (id === "demo") {
+    return NextResponse.json({
+      documentId: "demo",
+      commits: [
+        {
+          id: "demo-commit-init",
+          document_id: "demo",
+          author_id: "demo",
+          author_name: "SyncPro Demo",
+          message: "Инициализация демонстрационного документа",
+          created_at: new Date().toISOString(),
+          branch: "main",
+          content: "",
+        },
+      ],
+      source: "demo",
+    });
+  }
+
   const user = getUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
   }
-
-  const { id } = await params;
 
   const doc = await WorkspaceRepository.getDocumentById(id, user.id);
   if (!doc) {
@@ -63,12 +81,28 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  if (id === "demo") {
+    const body = await request.json();
+    return NextResponse.json({
+      success: true,
+      commit: {
+        id: "demo-commit-" + Date.now(),
+        document_id: "demo",
+        author_id: "demo",
+        author_name: "Вы (Демо)",
+        message: body.message || "Демо-коммит",
+        created_at: new Date().toISOString(),
+        branch: body.branch || "main",
+        content: body.content || "",
+      },
+    });
+  }
+
   const user = getUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
   }
-
-  const { id } = await params;
 
   const canEdit = await WorkspaceRepository.canUserEditDocument(id, user.id);
   if (!canEdit) {

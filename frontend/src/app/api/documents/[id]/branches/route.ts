@@ -7,12 +7,20 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  if (id === "demo") {
+    return NextResponse.json({
+      branches: [
+        { id: "demo-branch-main", name: "main", commit_id: "demo-commit-init" },
+      ],
+    });
+  }
+
   const user = getUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
   }
 
-  const { id } = await params;
   const doc = await WorkspaceRepository.getDocumentById(id, user.id);
   if (!doc) {
     return NextResponse.json({ error: "Документ не найден" }, { status: 404 });
@@ -31,12 +39,24 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  if (id === "demo") {
+    const body = await request.json();
+    const cleanName = (body.name || "feature").trim().replace(/\s+/g, "-");
+    return NextResponse.json(
+      {
+        success: true,
+        branch: { id: "demo-branch-" + Date.now(), name: cleanName, commit_id: "demo-commit-init" },
+      },
+      { status: 201 }
+    );
+  }
+
   const user = getUserFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: "Требуется авторизация" }, { status: 401 });
   }
 
-  const { id } = await params;
   const canEdit = await WorkspaceRepository.canUserEditDocument(id, user.id);
   if (!canEdit) {
     return NextResponse.json({ error: "Доступ запрещен. Только чтение" }, { status: 403 });
