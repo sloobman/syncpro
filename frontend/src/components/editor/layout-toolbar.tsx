@@ -279,6 +279,28 @@ export function LayoutToolbar({
           </Tooltip>
         </div>
 
+        {/* Pageless Mode Toggle Button */}
+        <div className="flex items-center shrink-0 ml-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={config.pageless ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => onChangeConfig({ pageless: !config.pageless })}
+                disabled={disabled}
+                onMouseDown={preventBlur}
+                className="h-7 px-2 text-xs gap-1.5 cursor-pointer font-medium"
+              >
+                <FileText className="h-3.5 w-3.5 text-primary" />
+                <span>{config.pageless ? "Бесстраничный" : "Страничный"}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {config.pageless ? "Включен бесконечный бесстраничный холст" : "Включен классический страничный режим A4 с полями"}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
         {/* Detailed Page Info Popover */}
         <Popover>
           <PopoverTrigger asChild>

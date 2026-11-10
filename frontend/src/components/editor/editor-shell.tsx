@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { type Editor, type JSONContent } from "@tiptap/react";
 import { EditorTopbar, type CollaboratorInfo } from "@/components/editor/editor-topbar";
 import { EditorToolbar } from "@/components/editor/editor-toolbar";
 import { EditorSidebar, type HeadingItem } from "@/components/editor/editor-sidebar";
@@ -12,351 +13,164 @@ import { ForkBranchDialog } from "@/components/editor/fork-branch-dialog";
 import type { BranchInfo } from "@/components/editor/branch-graph-view";
 import { CommitDialog } from "@/components/editor/commit-dialog";
 import { DiffViewer } from "@/components/editor/diff-viewer";
-import { applyFontSizeToSelection, applyFontFamilyToSelection, htmlToMarkdown, markdownToHtml, type RemoteCursorInfo } from "@/components/editor/block-editor-item";
 import { PagedCanvas } from "@/components/editor/paged-canvas";
+import { TiptapEditor } from "@/components/editor/tiptap/tiptap-editor";
 import { EditorErrorBoundary } from "@/components/editor/editor-error-boundary";
 import { DEFAULT_PAGE_LAYOUT, type PageLayoutConfig } from "@/lib/types/page-layout";
 import { DocumentConverter } from "@/lib/documents/document-converter";
-import { FontManager } from "@/lib/fonts/font-manager";
-import { CRDTDocument } from "@/lib/crdt/crdt-doc";
-import { formatID, parseID } from "@/lib/crdt/id";
-import type { BlockNode, BlockType, ID } from "@/lib/crdt/types";
 import type { MerkleCommit } from "@/lib/merkle-dag/types";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useAuthStore } from "@/lib/stores/auth-store";
 
+interface AwarenessUser {
+  clientId?: string;
+  user?: {
+    id?: string;
+    name?: string;
+    avatarUrl?: string | null;
+    color?: string;
+  };
+}
+
 interface EditorShellProps {
   documentId?: string;
 }
 
-function initCRDTFromMarkdown(doc: CRDTDocument, markdownText: string) {
-  if (!markdownText || !markdownText.trim()) {
-    const b = doc.createBlock(null, "paragraph", "a");
-    doc.insertText(b.id, 0, "");
-    return;
-  }
-
-  const lines = markdownText.split("\n");
-  const chunks: Array<{ type: BlockType; content: string }> = [];
-
-  let inCodeBlock = false;
-  let codeBuffer: string[] = [];
-  let inTable = false;
-  let tableBuffer: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Code block detection
-    if (line.trim().startsWith("```")) {
-      if (inCodeBlock) {
-        chunks.push({ type: "code-block", content: codeBuffer.join("\n") });
-        codeBuffer = [];
-        inCodeBlock = false;
-      } else {
-        inCodeBlock = true;
+/**
+ * Parses raw document content (JSON string, markdown, or plain text) into a valid Tiptap AST doc.
+ */
+function parseInitialTiptapContent(rawContent: string | null | undefined, title: string): JSONContent {
+  if (rawContent && rawContent.trim()) {
+    try {
+      const parsed = JSON.parse(rawContent);
+      if (parsed && parsed.type === "doc") {
+        return parsed;
       }
-      continue;
-    }
+    } catch {}
 
-    if (inCodeBlock) {
-      codeBuffer.push(line);
-      continue;
-    }
-
-    // Table detection (line starts and ends with |)
-    if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
-      inTable = true;
-      tableBuffer.push(line);
-      continue;
-    } else if (inTable) {
-      chunks.push({ type: "table", content: tableBuffer.join("\n") });
-      tableBuffer = [];
-      inTable = false;
-    }
-
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    // Check headings & rich blocks
-    if (trimmed.startsWith("# ")) {
-      chunks.push({ type: "heading1", content: trimmed.slice(2).trim() });
-    } else if (trimmed.startsWith("## ")) {
-      chunks.push({ type: "heading2", content: trimmed.slice(3).trim() });
-    } else if (trimmed.startsWith("### ")) {
-      chunks.push({ type: "heading3", content: trimmed.slice(4).trim() });
-    } else if (trimmed.startsWith("> ")) {
-      chunks.push({ type: "quote", content: trimmed.slice(2).trim() });
-    } else if (trimmed.startsWith("[ ] ") || trimmed.startsWith("[x] ") || trimmed.startsWith("[X] ")) {
-      chunks.push({ type: "todo", content: trimmed });
-    } else if (trimmed.startsWith("![") && trimmed.includes("](") && trimmed.endsWith(")")) {
-      chunks.push({ type: "image", content: trimmed });
-    } else if (trimmed === "<!-- pagebreak -->" || trimmed === "\\pagebreak" || trimmed === "---pagebreak---") {
-      chunks.push({ type: "page-break", content: "" });
-    } else if (trimmed === "---" || trimmed === "***" || trimmed === "___") {
-      chunks.push({ type: "divider", content: "" });
-    } else if (trimmed.startsWith("• ") || trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-      chunks.push({ type: "bullet-list", content: trimmed.slice(2).trim() });
-    } else if (/^\d+\.\s/.test(trimmed)) {
-      chunks.push({ type: "numbered-list", content: trimmed.replace(/^\d+\.\s*/, "").trim() });
-    } else {
-      chunks.push({ type: "paragraph", content: trimmed });
-    }
-  }
-
-  if (inTable && tableBuffer.length > 0) {
-    chunks.push({ type: "table", content: tableBuffer.join("\n") });
-  }
-  if (inCodeBlock && codeBuffer.length > 0) {
-    chunks.push({ type: "code-block", content: codeBuffer.join("\n") });
-  }
-
-  if (chunks.length === 0) {
-    const b = doc.createBlock(null, "paragraph", "a");
-    doc.insertText(b.id, 0, "");
-    return;
-  }
-
-  chunks.forEach((chunk, index) => {
-    const orderKey = String.fromCharCode(97 + (index % 26)).repeat(
-      Math.floor(index / 26) + 1
-    );
-    const b = doc.createBlock(null, chunk.type, orderKey);
-    doc.insertText(b.id, 0, chunk.content);
-  });
-}
-
-function serializeCRDTToMarkdown(doc: CRDTDocument): string {
-  const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
-  return activeBlocks
-    .map((b) => {
-      const text = doc.getBlockText(b.id);
-      if (b.blockType === "heading1") return `# ${text}`;
-      if (b.blockType === "heading2") return `## ${text}`;
-      if (b.blockType === "heading3") return `### ${text}`;
-      if (b.blockType === "quote") return text.startsWith(">") ? text : `> ${text}`;
-      if (b.blockType === "page-break") return "<!-- pagebreak -->";
-      if (b.blockType === "divider") return "---";
-      if (b.blockType === "code-block") return `\`\`\`\n${text}\n\`\`\``;
-      if (b.blockType === "bullet-list" || b.blockType === "list-item") return `• ${text}`;
-      if (b.blockType === "numbered-list") return `1. ${text}`;
-      return text;
-    })
-    .join("\n\n");
-}
-
-function setCaretAtCharOffset(element: HTMLElement, offset: number) {
-  try {
-    element.focus({ preventScroll: true });
-    const selection = window.getSelection();
-    if (!selection) return;
-
-    const range = document.createRange();
-    let currentOffset = 0;
-    let found = false;
-
-    function traverseNodes(node: Node) {
-      if (found) return;
-      if (node.nodeType === Node.TEXT_NODE) {
-        const textLen = (node.textContent || "").length;
-        if (currentOffset + textLen >= offset) {
-          range.setStart(node, Math.min(offset - currentOffset, textLen));
-          range.collapse(true);
-          found = true;
-          return;
-        }
-        currentOffset += textLen;
+    // Fallback parser for plain text / legacy markdown lines
+    const lines = rawContent.split("\n");
+    const nodes: JSONContent[] = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        nodes.push({ type: "paragraph" });
+        continue;
+      }
+      if (trimmed.startsWith("# ")) {
+        nodes.push({
+          type: "heading",
+          attrs: { level: 1 },
+          content: [{ type: "text", text: trimmed.slice(2).trim() }],
+        });
+      } else if (trimmed.startsWith("## ")) {
+        nodes.push({
+          type: "heading",
+          attrs: { level: 2 },
+          content: [{ type: "text", text: trimmed.slice(3).trim() }],
+        });
+      } else if (trimmed.startsWith("### ")) {
+        nodes.push({
+          type: "heading",
+          attrs: { level: 3 },
+          content: [{ type: "text", text: trimmed.slice(4).trim() }],
+        });
+      } else if (trimmed === "<!-- pagebreak -->" || trimmed === "\\pagebreak" || trimmed === "---pagebreak---") {
+        nodes.push({ type: "pageBreak" });
       } else {
-        for (let i = 0; i < node.childNodes.length; i++) {
-          traverseNodes(node.childNodes[i]);
-          if (found) return;
-        }
+        nodes.push({
+          type: "paragraph",
+          content: [{ type: "text", text: line }],
+        });
       }
     }
-
-    traverseNodes(element);
-    if (!found) {
-      range.selectNodeContents(element);
-      range.collapse(false);
-    }
-    selection.removeAllRanges();
-    selection.addRange(range);
-  } catch (err) {
-    console.warn("Caret positioning notice:", err);
+    return { type: "doc", content: nodes.length > 0 ? nodes : [{ type: "paragraph" }] };
   }
+
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "heading",
+        attrs: { level: 1 },
+        content: [{ type: "text", text: title || "Новый документ" }],
+      },
+      { type: "paragraph" },
+    ],
+  };
 }
 
 export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
   const router = useRouter();
   const { user } = useAuthStore();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [commits, setCommits] = useState<MerkleCommit[]>([]);
-  const [currentCommitId, setCurrentCommitId] = useState<string>("");
-  const [timeTravelIndex, setTimeTravelIndex] = useState<number | null>(null);
-  const [isMergeOpen, setIsMergeOpen] = useState(false);
-  const [isDiffOpen, setIsDiffOpen] = useState(false);
-  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
-  const [branch, setBranch] = useState("main");
-  const [branches, setBranches] = useState<string[]>(["main", "dev"]);
-  const [branchesInfo, setBranchesInfo] = useState<BranchInfo[]>([]);
-  const [isForkDialogOpen, setIsForkDialogOpen] = useState(false);
-  const [forkSourceCommit, setForkSourceCommit] = useState<MerkleCommit | null>(null);
-  const [documentFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
-  const [activeFont, setActiveFont] = useState<string>("Inter, system-ui, -apple-system, sans-serif");
-  const [activeSize, setActiveSize] = useState<string>("16px");
 
-  const [pageLayout, setPageLayout] = useState<PageLayoutConfig>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(`syncpro_layout_${documentId}`);
-        if (saved) return JSON.parse(saved);
-      } catch {}
-    }
-    return DEFAULT_PAGE_LAYOUT;
-  });
-
-  const handlePageLayoutChange = useCallback(
-    (updates: Partial<PageLayoutConfig>) => {
-      setPageLayout((prev) => {
-        const next = { ...prev, ...updates };
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem(`syncpro_layout_${documentId}`, JSON.stringify(next));
-          } catch {}
-        }
-        return next;
-      });
-    },
-    [documentId]
-  );
-
-  const lastSavedRangeRef = useRef<{ range: Range; blockId: string } | null>(null);
-  const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
-
-  type BlockHistoryOp = {
-    type: "merge" | "delete" | "add";
-    prevBlockId?: ID;
-    currentBlockId?: ID;
-    currentBlockType?: BlockType;
-    prevText?: string;
-    currentText?: string;
-    afterBlockId?: ID | null;
-  };
-
-  const blockUndoStackRef = useRef<BlockHistoryOp[]>([]);
-
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return;
-      let node: Node | null = selection.anchorNode;
-      if (!node) return;
-      if (node.nodeType === Node.TEXT_NODE) {
-        node = node.parentNode;
-      }
-      if (node && node instanceof HTMLElement) {
-        const blockEl = node.closest('[id^="block-"]');
-        if (blockEl) {
-          const bKey = blockEl.id.replace("block-", "");
-          const range = selection.getRangeAt(0);
-          lastSavedRangeRef.current = { range: range.cloneRange(), blockId: bKey };
-        }
-        const canvas = node.closest(".editor-canvas");
-        if (canvas) {
-          const computed = window.getComputedStyle(node);
-          if (computed.fontFamily) {
-            setActiveFont(computed.fontFamily);
-          }
-          if (computed.fontSize) {
-            setActiveSize(computed.fontSize);
-          }
-        }
-      }
-    };
-
-    document.addEventListener("selectionchange", handleSelectionChange);
-    return () => {
-      document.removeEventListener("selectionchange", handleSelectionChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    FontManager.preloadBuiltInFonts();
-  }, []);
-  const [onlineUsers, setOnlineUsers] = useState<CollaboratorInfo[]>([]);
-  const [remoteCursorsMap, setRemoteCursorsMap] = useState<Record<string, RemoteCursorInfo[]>>({});
-
-  // Per-branch drafts map so switching branches switches document content
-  const branchContentsRef = useRef<Record<string, string>>({});
-
-  const clientIdRef = useRef<string>("");
-  const myColorRef = useRef<string>("bg-primary");
-
-  useEffect(() => {
-    if (!clientIdRef.current) {
-      clientIdRef.current = `client_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
-      const colors = ["bg-blue-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-rose-500"];
-      myColorRef.current = colors[Math.floor(Math.random() * colors.length)];
-    }
-  }, []);
-
-  const [title, setTitle] = useState(() => {
-    if (typeof window === "undefined") return "Новый документ";
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [title, setTitle] = useState<string>(() => {
     const store = useWorkspaceStore.getState();
     const docMeta = store.getDocumentById(documentId);
     return (
       docMeta?.title ||
-      (documentId === "doc_1"
-        ? "Глава 1: Введение в системы совместного редактирования"
-        : "Новый документ")
+      (documentId === "doc_1" ? "Глава 1: Введение в системы совместного редактирования" : "Новый документ")
     );
   });
-  const [blocksState, setBlocksState] = useState<BlockNode[]>([]);
-  const [blockTexts, setBlockTexts] = useState<Record<string, string>>({});
-  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
-  const [canEdit, setCanEdit] = useState(true);
-  const [userRole, setUserRole] = useState<string>("owner");
-
-  // CRDT Document instance & save timer ref
-  const docRef = useRef<CRDTDocument | null>(null);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Synchronize blocks state from CRDT tree
-  const refreshBlocks = useCallback(() => {
-    const doc = docRef.current;
-    if (!doc) return;
-    const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
-    setBlocksState(activeBlocks);
-
-    const texts: Record<string, string> = {};
-    for (const b of activeBlocks) {
-      texts[formatID(b.id)] = doc.getBlockText(b.id);
-    }
-    setBlockTexts(texts);
-  }, []);
-
-  // Initialize document from persistent store and backend
-  useEffect(() => {
+  const [initialContent, setInitialContent] = useState<JSONContent>(() => {
     const store = useWorkspaceStore.getState();
     const docMeta = store.getDocumentById(documentId);
     const savedContent = store.getDocumentContent(documentId);
-    const docTitle = docMeta?.title || (documentId === "doc_1" ? "Глава 1: Введение в системы совместного редактирования" : "Новый документ");
+    const docTitle =
+      docMeta?.title ||
+      (documentId === "doc_1" ? "Глава 1: Введение в системы совместного редактирования" : "Новый документ");
+    return parseInitialTiptapContent(savedContent, docTitle);
+  });
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
+  const [canEdit, setCanEdit] = useState(true);
+  const [userRole, setUserRole] = useState<string>("owner");
+  const [stats, setStats] = useState({ words: 0, chars: 0 });
 
-    const doc = new CRDTDocument(1);
-    docRef.current = doc;
+  // Sidebar & Layout State
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pageLayout, setPageLayout] = useState<PageLayoutConfig>(DEFAULT_PAGE_LAYOUT);
 
-    const initialContent = savedContent || (documentId === "doc_1" ? store.getDocumentContent("doc_1") : `# ${docTitle}\n\n`);
-    branchContentsRef.current["main"] = initialContent;
-    initCRDTFromMarkdown(doc, initialContent);
+  // Active Typography state for toolbar indicators
+  const [activeFont, setActiveFont] = useState("Inter, sans-serif");
+  const [activeSize, setActiveSize] = useState("16px");
 
-    doc.onUpdate(() => {
-      refreshBlocks();
-    });
+  // Version Control & Branches
+  const [branches, setBranches] = useState<string[]>(["main"]);
+  const [activeBranch, setActiveBranch] = useState("main");
+  const [branchesInfo, setBranchesInfo] = useState<BranchInfo[]>([]);
+  const [commits, setCommits] = useState<MerkleCommit[]>([]);
+  const [currentCommitId, setCurrentCommitId] = useState<string | null>(null);
+  const [isCommitDialogOpen, setIsCommitDialogOpen] = useState(false);
+  const [isMergeDialogOpen, setIsMergeDialogOpen] = useState(false);
+  const [isForkDialogOpen, setIsForkDialogOpen] = useState(false);
+  const [forkSourceCommit, setForkSourceCommit] = useState<MerkleCommit | null>(null);
 
-    refreshBlocks();
+  // Time Travel & Diff State
+  const [isTimeTraveling, setIsTimeTraveling] = useState(false);
+  const [timeTravelIndex, setTimeTravelIndex] = useState(0);
+  const [isComparingLCA, setIsComparingLCA] = useState(false);
+  const [lcaDiffData] = useState<{ oldContent: string; newContent: string } | null>(null);
+
+  // Presence & Online Collaborators
+  const [onlineUsers, setOnlineUsers] = useState<CollaboratorInfo[]>([]);
+  const clientIdRef = useRef<string>("");
+  const myColorRef = useRef<string>("#3b82f6");
+  const branchContentsRef = useRef<Record<string, string>>({});
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Initialize client id and avatar color
+  useEffect(() => {
+    clientIdRef.current = `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    const colors = ["#3b82f6", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#06b6d4"];
+    myColorRef.current = colors[Math.floor(Math.random() * colors.length)];
+  }, []);
+
+  // Initialize document content from store and API
+  useEffect(() => {
+    branchContentsRef.current["main"] = JSON.stringify(initialContent);
 
     // Fetch document metadata and content from server
     fetch(`/api/documents/${documentId}`, { credentials: "include" })
@@ -374,11 +188,11 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         }
         if (data.content) {
           branchContentsRef.current["main"] = data.content;
-          const freshDoc = new CRDTDocument(1);
-          docRef.current = freshDoc;
-          initCRDTFromMarkdown(freshDoc, data.content);
-          freshDoc.onUpdate(refreshBlocks);
-          refreshBlocks();
+          const parsed = parseInitialTiptapContent(data.content, data.document?.title || title);
+          setInitialContent(parsed);
+          if (editor) {
+            editor.commands.setContent(parsed);
+          }
         }
       })
       .catch(() => {});
@@ -407,7 +221,6 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
           if (!uniqueBranches.includes("main")) uniqueBranches.unshift("main");
           setBranches(uniqueBranches as string[]);
 
-          // Populate branch contents from commit snapshots
           for (const c of data.commits) {
             if (c.branch && c.content && !branchContentsRef.current[c.branch]) {
               branchContentsRef.current[c.branch] = c.content;
@@ -416,7 +229,7 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         }
       })
       .catch(() => {});
-  }, [documentId, refreshBlocks]);
+  }, [documentId]);
 
   // Real-time Awareness Polling (Redis presence)
   useEffect(() => {
@@ -425,7 +238,6 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
     const pollAwareness = async () => {
       try {
         const cId = clientIdRef.current || `client_${Date.now().toString(36)}`;
-        // Send heartbeat
         await fetch(`/api/documents/${documentId}/awareness`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -439,36 +251,26 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
                 avatarUrl: user?.avatarUrl || null,
                 color: myColorRef.current,
               },
-              cursor: { blockId: activeBlockId || "root" },
+              cursor: { blockId: "root" },
             },
           }),
         });
 
-        // Retrieve active online users
         const res = await fetch(`/api/documents/${documentId}/awareness`, {
           credentials: "include",
         });
         if (res.ok && !cancelled) {
           const data = await res.json();
-          if (Array.isArray(data.users)) {
-            const formatted: CollaboratorInfo[] = data.users.map((u: {
-              id?: string;
-              clientId?: string;
-              name?: string;
-              avatarUrl?: string | null;
-              color?: string;
-            }) => ({
-              id: u.id || u.clientId || "u",
-              name: u.name || "Участник",
-              avatarUrl: u.avatarUrl || null,
-              color: u.color || "bg-primary",
-            }));
-            setOnlineUsers(formatted);
-          }
+          const usersList: CollaboratorInfo[] = (data.users || []).map((u: AwarenessUser) => ({
+            id: u.clientId || u.user?.id || Math.random().toString(),
+            name: u.user?.name || "Соавтор",
+            avatarUrl: u.user?.avatarUrl || null,
+            color: u.user?.color || "#10b981",
+            isActive: true,
+          }));
+          setOnlineUsers(usersList);
         }
-      } catch {
-        // Network or offline fallback
-      }
+      } catch {}
     };
 
     pollAwareness();
@@ -477,1258 +279,240 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [documentId, user?.id, user?.name, user?.avatarUrl, activeBlockId]);
+  }, [documentId, user]);
 
-  // Debounced auto-save function (DOES NOT create Merkle DAG commit!)
+  // Debounced auto-save to backend
   const triggerAutoSave = useCallback(
-    (newTitle?: string) => {
-      const doc = docRef.current;
-      if (!doc || !canEdit) return;
-
+    (jsonContentStr: string) => {
+      if (!canEdit) return;
       setSaveStatus("saving");
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-
       saveTimeoutRef.current = setTimeout(async () => {
-        const markdown = serializeCRDTToMarkdown(doc);
-        const currentTitle = newTitle ?? title;
-        branchContentsRef.current[branch] = markdown;
-        useWorkspaceStore.getState().saveDocumentContent(documentId, markdown, currentTitle);
-
-        // Debounced patch to server to save working draft
         try {
-          await fetch(`/api/documents/${documentId}`, {
+          useWorkspaceStore.getState().saveDocumentContent(documentId, jsonContentStr);
+          const res = await fetch(`/api/documents/${documentId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ content: markdown, title: currentTitle }),
+            body: JSON.stringify({ content: jsonContentStr }),
           });
+          if (res.ok) {
+            setSaveStatus("saved");
+          } else {
+            setSaveStatus("unsaved");
+          }
         } catch {
-          // Local storage preserves offline changes
+          setSaveStatus("unsaved");
         }
-
-        setSaveStatus("saved");
-      }, 500);
+      }, 1000);
     },
-    [branch, canEdit, documentId, title]
+    [canEdit, documentId]
   );
 
+  // Handle updates from Tiptap editor
+  const handleEditorUpdate = useCallback(
+    ({ json, text }: { json: JSONContent; html: string; text: string }) => {
+      const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+      const chars = text.length;
+      setStats({ words, chars });
 
-  // Immediate beforeunload presence cleanup to eliminate ghost sessions
-  useEffect(() => {
-    const handleUnload = () => {
-      const cId = clientIdRef.current;
-      if (cId && documentId) {
-        const url = `/api/documents/${documentId}/awareness?clientId=${encodeURIComponent(cId)}`;
-        if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-          navigator.sendBeacon(url);
-        } else {
-          fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
-        }
-      }
-    };
+      const contentStr = JSON.stringify(json);
+      branchContentsRef.current[activeBranch] = contentStr;
+      triggerAutoSave(contentStr);
+    },
+    [activeBranch, triggerAutoSave]
+  );
 
-    window.addEventListener("beforeunload", handleUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleUnload);
-      handleUnload();
-    };
-  }, [documentId]);
+  // Track selection for toolbar font & size indicators
+  const handleSelectionUpdate = useCallback((ed: Editor) => {
+    // Check font size
+    const size = ed.getAttributes("textStyle")?.fontSize || "16px";
+    setActiveSize(size);
 
+    // Check font family
+    const font = ed.getAttributes("textStyle")?.fontFamily || "Inter, sans-serif";
+    setActiveFont(font);
+  }, []);
 
-  // Real-time SSE CRDT Synchronization (Zero data loss, sub-30ms updates)
-  useEffect(() => {
-    if (!documentId) return;
-    let sse: EventSource | null = null;
-    const myClientId = clientIdRef.current;
-
-    try {
-      sse = new EventSource(`/api/documents/${documentId}/sync`);
-
-      sse.addEventListener("crdt", (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data);
-          if (!data || data.clientId === myClientId) return;
-
-          const doc = docRef.current;
-          if (!doc) return;
-
-          if (Array.isArray(data.ops) && data.ops.length > 0) {
-            let changed = false;
-            for (const op of data.ops) {
-              if (doc.applyOperation(op)) {
-                changed = true;
-              }
-            }
-            if (changed) {
-              refreshBlocks();
-            }
-          }
-
-          if (data.cursor && data.cursor.blockId) {
-            setRemoteCursorsMap((prev) => ({
-              ...prev,
-              [data.cursor.blockId]: [
-                {
-                  name: data.cursor.name || "Соавтор",
-                  color: data.cursor.color || "#3b82f6",
-                  offset: data.cursor.offset || 0,
-                },
-              ],
-            }));
-          }
-        } catch (err) {
-          console.warn("[Sync SSE incoming error]:", err);
-        }
-      });
-    } catch (err) {
-      console.warn("[Sync SSE connect error]:", err);
-    }
-
-    return () => {
-      if (sse) sse.close();
-    };
-  }, [documentId, refreshBlocks]);
-
-  // Broadcast local CRDT operations to peers
-  useEffect(() => {
-    const doc = docRef.current;
-    if (!doc || !canEdit) return;
-
-    const unbind = doc.onUpdate((_deltaBytes, ops) => {
-      if (ops.length === 0) return;
-      const cId = clientIdRef.current;
-      fetch(`/api/documents/${documentId}/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          clientId: cId,
-          ops,
-          cursor: {
-            blockId: activeBlockId || "root",
-            name: user?.name ? `${user.name} (Вы)` : "Вы",
-            color: myColorRef.current,
-          },
-        }),
-      }).catch(() => {});
-    });
-
-    return () => unbind();
-  }, [canEdit, documentId, activeBlockId, user?.name]);
-
-  // Keyboard shortcut Ctrl+S / Cmd+S -> Open meaningful Commit Dialog
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        if (canEdit) {
-          setIsCommitDialogOpen(true);
-        }
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [canEdit]);
-
-  // Handle title changes
+  // Rename document
   const handleTitleChange = useCallback(
-    (newTitle: string) => {
-      if (!canEdit) return;
+    async (newTitle: string) => {
       setTitle(newTitle);
-      useWorkspaceStore.getState().updateDocument(documentId, { title: newTitle });
-      triggerAutoSave(newTitle);
+      try {
+        await fetch(`/api/documents/${documentId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ title: newTitle }),
+        });
+      } catch {}
     },
-    [canEdit, documentId, triggerAutoSave]
+    [documentId]
   );
 
-  // Robust prefix-suffix CRDT text diffing
-  const handleTextChange = useCallback(
-    (blockId: ID, newText: string) => {
-      const doc = docRef.current;
-      if (!doc || !canEdit) return;
+  // Toolbar Actions Execution via Tiptap
+  const handleToolbarAction = useCallback(
+    (action: string) => {
+      if (!editor || !canEdit) return;
 
-      const current = doc.getBlockText(blockId);
-      if (newText === current) return;
-
-      // Find common prefix
-      let start = 0;
-      while (start < current.length && start < newText.length && current[start] === newText[start]) {
-        start++;
-      }
-
-      // Find common suffix
-      let currentEnd = current.length;
-      let newEnd = newText.length;
-      while (currentEnd > start && newEnd > start && current[currentEnd - 1] === newText[newEnd - 1]) {
-        currentEnd--;
-        newEnd--;
-      }
-
-      const deleteCount = currentEnd - start;
-      const insertedText = newText.slice(start, newEnd);
-
-      if (deleteCount > 0) {
-        doc.deleteText(blockId, start, deleteCount);
-      }
-      if (insertedText.length > 0) {
-        doc.insertText(blockId, start, insertedText);
-      }
-
-      // Optimistically update local block texts
-      const bKey = formatID(blockId);
-      setBlockTexts((prev) => ({ ...prev, [bKey]: newText }));
-
-      triggerAutoSave();
-    },
-    [canEdit, triggerAutoSave]
-  );
-
-  // Add a new block to the CRDT tree
-  const handleAddBlock = useCallback(
-    (type: BlockType = "paragraph", initialText?: string, afterBlockId?: ID | null) => {
-      const doc = docRef.current;
-      if (!doc || !canEdit) return;
-
-      const defaultText =
-        initialText ??
-        (type === "heading1"
-          ? "Новый заголовок 1"
-          : type === "heading2"
-          ? "Новый подраздел"
-          : type === "heading3"
-          ? "Новый пункт"
-          : type === "quote"
-          ? "Важная цитата..."
-          : type === "todo"
-          ? "[ ] Новая задача"
-          : type === "bullet-list"
-          ? "Элемент списка"
-          : type === "numbered-list"
-          ? "Элемент списка"
-          : type === "code-block"
-          ? "// Код или конфигурация\nconst mode = 'sync';"
-          : type === "table"
-          ? "| Параметр | Значение |\n|---|---|\n| Статус | В работе |\n| Версия | 1.0 |"
-          : type === "image"
-          ? ""
-          : "");
-
-      const block = doc.insertBlockAfter(afterBlockId ?? null, type, defaultText);
-      setActiveBlockId(formatID(block.id));
-      refreshBlocks();
-      triggerAutoSave();
-      return block;
-    },
-    [canEdit, refreshBlocks, triggerAutoSave]
-  );
-
-  const handleSmartClick = useCallback(
-    (_pageIndex: number, align: "left" | "center" | "right", afterBlockId?: ID | null) => {
-      if (!canEdit) return;
-      const initialStyle = align !== "left" ? `<div style="text-align: ${align}"><br></div>` : "";
-      handleAddBlock("paragraph", initialStyle, afterBlockId);
-    },
-    [canEdit, handleAddBlock]
-  );
-
-  const handleAddPage = useCallback(() => {
-    const doc = docRef.current;
-    if (!doc || !canEdit) return;
-    const roots = doc.tree.getRootBlocks();
-    const lastBlock = roots.length > 0 ? roots[roots.length - 1] : null;
-    const pageBreak = doc.insertBlockAfter(lastBlock ? lastBlock.id : null, "page-break");
-    const newParagraph = doc.insertBlockAfter(pageBreak.id, "paragraph");
-    setActiveBlockId(formatID(newParagraph.id));
-    refreshBlocks();
-    triggerAutoSave();
-  }, [canEdit, refreshBlocks, triggerAutoSave]);
-
-  // Change existing block type
-  const handleChangeBlockType = useCallback(
-    (blockId: ID, newType: BlockType) => {
-      const doc = docRef.current;
-      if (!doc || !canEdit) return;
-
-      doc.setBlockType(blockId, newType);
-      refreshBlocks();
-      triggerAutoSave();
-    },
-    [canEdit, refreshBlocks, triggerAutoSave]
-  );
-
-  // Delete a block from the CRDT tree
-  const handleDeleteBlock = useCallback(
-    (blockId: ID, recordUndo = true) => {
-      const doc = docRef.current;
-      if (!doc || !canEdit) return;
-
-      if (recordUndo) {
-        const rootBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
-        const idx = rootBlocks.findIndex(
-          (b) => b.id.clock === blockId.clock && b.id.clientId === blockId.clientId
-        );
-        const targetBlock = idx >= 0 ? rootBlocks[idx] : null;
-        if (targetBlock) {
-          const afterBlockId = idx > 0 ? rootBlocks[idx - 1].id : null;
-          const text = doc.getBlockText(targetBlock.id);
-          blockUndoStackRef.current.push({
-            type: "delete",
-            currentBlockId: targetBlock.id,
-            currentBlockType: targetBlock.blockType,
-            currentText: text,
-            afterBlockId,
-          });
+      switch (action) {
+        case "undo":
+          editor.chain().focus().undo().run();
+          break;
+        case "redo":
+          editor.chain().focus().redo().run();
+          break;
+        case "bold":
+          editor.chain().focus().toggleBold().run();
+          break;
+        case "italic":
+          editor.chain().focus().toggleItalic().run();
+          break;
+        case "underline":
+          editor.chain().focus().toggleUnderline().run();
+          break;
+        case "strike":
+          editor.chain().focus().toggleStrike().run();
+          break;
+        case "h1":
+          editor.chain().focus().toggleHeading({ level: 1 }).run();
+          break;
+        case "h2":
+          editor.chain().focus().toggleHeading({ level: 2 }).run();
+          break;
+        case "h3":
+          editor.chain().focus().toggleHeading({ level: 3 }).run();
+          break;
+        case "p":
+        case "paragraph":
+          editor.chain().focus().setParagraph().run();
+          break;
+        case "bullet-list":
+          editor.chain().focus().toggleBulletList().run();
+          break;
+        case "numbered-list":
+          editor.chain().focus().toggleOrderedList().run();
+          break;
+        case "quote":
+          editor.chain().focus().toggleBlockquote().run();
+          break;
+        case "code":
+          editor.chain().focus().toggleCodeBlock().run();
+          break;
+        case "table":
+          editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+          break;
+        case "image": {
+          const url = prompt(
+            "Введите адрес изображения (URL):",
+            "https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=300"
+          );
+          if (url && url.trim()) {
+            editor.chain().focus().setImage({ src: url.trim() }).run();
+          }
+          break;
         }
+        case "pagebreak":
+          editor.chain().focus().setPageBreak().run();
+          break;
       }
-
-      doc.deleteBlock(blockId);
-      refreshBlocks();
-      triggerAutoSave();
     },
-    [canEdit, refreshBlocks, triggerAutoSave]
+    [editor, canEdit]
   );
 
-  const handleUndoBlockOp = useCallback(() => {
-    const op = blockUndoStackRef.current.pop();
-    if (!op) return;
-    const doc = docRef.current;
-    if (!doc || !canEdit) return;
-
-    if (
-      op.type === "merge" &&
-      op.prevBlockId &&
-      op.currentBlockType &&
-      op.prevText !== undefined &&
-      op.currentText !== undefined
-    ) {
-      handleTextChange(op.prevBlockId, op.prevText);
-      const prevKey = formatID(op.prevBlockId);
-      const el = document.getElementById(`block-${prevKey}`);
-      if (el) {
-        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
-        if (editable) editable.innerHTML = markdownToHtml(op.prevText);
-      }
-      const reinserted = doc.insertBlockAfter(op.prevBlockId, op.currentBlockType, op.currentText);
-      setActiveBlockId(formatID(reinserted.id));
-      refreshBlocks();
-      triggerAutoSave();
-    } else if (op.type === "delete" && op.currentBlockType && op.currentText !== undefined) {
-      const reinserted = doc.insertBlockAfter(op.afterBlockId ?? null, op.currentBlockType, op.currentText);
-      setActiveBlockId(formatID(reinserted.id));
-      refreshBlocks();
-      triggerAutoSave();
-    }
-  }, [canEdit, handleTextChange, refreshBlocks, triggerAutoSave]);
-
-  // Typography Toolbar Handlers
   const handleFontChange = useCallback(
-    (fontFamily: string) => {
-      setActiveFont(fontFamily);
-      const selection = window.getSelection();
-      let hasTextSelected = selection && selection.rangeCount > 0 && !selection.isCollapsed;
-      let targetBlockKey = activeBlockId;
-
-      if (!hasTextSelected && lastSavedRangeRef.current && !lastSavedRangeRef.current.range.collapsed) {
-        try {
-          selection?.removeAllRanges();
-          selection?.addRange(lastSavedRangeRef.current.range);
-          hasTextSelected = true;
-          targetBlockKey = lastSavedRangeRef.current.blockId || targetBlockKey;
-        } catch {}
-      }
-
-      if (hasTextSelected) {
-        const applied = applyFontFamilyToSelection(fontFamily);
-        if (!applied) {
-          try {
-            document.execCommand("styleWithCSS", false, "true");
-            document.execCommand("fontName", false, fontFamily);
-          } catch {}
-        }
-        if (targetBlockKey) {
-          const el = document.getElementById(`block-${targetBlockKey}`);
-          if (el) {
-            const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
-            if (editable) {
-              const newHtml = editable.innerHTML;
-              const newMarkdown = htmlToMarkdown(newHtml);
-              const foundBlock = blocksState.find((b) => formatID(b.id) === targetBlockKey);
-              if (foundBlock) {
-                handleTextChange(foundBlock.id, newMarkdown);
-              }
-            }
-          }
-        }
-      } else if (targetBlockKey) {
-        const el = document.getElementById(`block-${targetBlockKey}`);
-        if (el) {
-          const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
-          if (editable) {
-            editable.style.fontFamily = fontFamily;
-            const newHtml = editable.innerHTML;
-            const newMarkdown = htmlToMarkdown(newHtml);
-            const foundBlock = blocksState.find((b) => formatID(b.id) === targetBlockKey);
-            if (foundBlock) {
-              handleTextChange(foundBlock.id, newMarkdown);
-            }
-          }
-        }
-      }
+    (font: string) => {
+      if (!editor || !canEdit) return;
+      setActiveFont(font);
+      editor.chain().focus().setFontFamily(font).run();
     },
-    [activeBlockId, blocksState, handleTextChange]
+    [editor, canEdit]
   );
 
   const handleSizeChange = useCallback(
     (size: string) => {
+      if (!editor || !canEdit) return;
       setActiveSize(size);
-      const targetRange = lastSavedRangeRef.current?.range;
-      const applied = applyFontSizeToSelection(size, targetRange);
-      if (applied) {
-        lastSavedRangeRef.current = null;
-        if (activeBlockId) {
-          const el = document.getElementById(`block-${activeBlockId}`);
-          const editable = el?.querySelector('[contenteditable="true"]') as HTMLElement | null;
-          if (editable) {
-            const newMarkdown = htmlToMarkdown(editable.innerHTML);
-            const foundBlock = blocksState.find((b) => formatID(b.id) === activeBlockId);
-            if (foundBlock) {
-              handleTextChange(foundBlock.id, newMarkdown);
-            }
-          }
-        }
-        return;
-      }
-      if (!applied && activeBlockId) {
-        const el = document.getElementById(`block-${activeBlockId}`);
-        if (el) {
-          const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
-          if (editable) {
-            editable.style.fontSize = size;
-            const newHtml = editable.innerHTML;
-            const newMarkdown = htmlToMarkdown(newHtml);
-            const foundBlock = blocksState.find((b) => formatID(b.id) === activeBlockId);
-            if (foundBlock) {
-              handleTextChange(foundBlock.id, newMarkdown);
-            }
-          }
-        }
-      }
+      editor.chain().focus().setFontSize(size).run();
     },
-    [activeBlockId, blocksState, handleTextChange]
+    [editor, canEdit]
   );
 
-  const handleColorChange = useCallback((color: string) => {
-    try {
-      document.execCommand("styleWithCSS", false, "true");
-      document.execCommand("foreColor", false, color);
-    } catch {}
-  }, []);
-
-  const handleHighlightChange = useCallback((color: string) => {
-    try {
-      document.execCommand("styleWithCSS", false, "true");
-      document.execCommand("hiliteColor", false, color);
-    } catch {}
-  }, []);
-
-  const handleAlignChange = useCallback((align: "left" | "center" | "right" | "justify") => {
-    const cmdMap: Record<string, string> = {
-      left: "justifyLeft",
-      center: "justifyCenter",
-      right: "justifyRight",
-      justify: "justifyFull",
-    };
-    try {
-      document.execCommand(cmdMap[align] || "justifyLeft", false);
-    } catch {}
-    if (activeBlockId) {
-      const el = document.getElementById(`block-${activeBlockId}`);
-      if (el) {
-        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
-        if (editable) {
-          editable.style.textAlign = align;
-        }
-      }
-    }
-  }, [activeBlockId]);
-
-  // Real WYSIWYG Toolbar action execution
-  const handleToolbarAction = useCallback(
-    (action: string) => {
-      const doc = docRef.current;
-      if (!doc || !canEdit) return;
-
-      const activeBlocks = doc.tree.getRootBlocks().filter((b) => !b.isDeleted);
-      const targetBlock = activeBlockId
-        ? activeBlocks.find((b) => formatID(b.id) === activeBlockId) || activeBlocks[0]
-        : activeBlocks[activeBlocks.length - 1];
-
-      switch (action) {
-        case "undo":
-          if (blockUndoStackRef.current.length > 0) {
-            handleUndoBlockOp();
-          } else {
-            document.execCommand("undo");
-          }
-          break;
-        case "redo":
-          document.execCommand("redo");
-          break;
-        case "bold":
-          document.execCommand("bold");
-          break;
-        case "italic":
-          document.execCommand("italic");
-          break;
-        case "underline":
-          document.execCommand("underline");
-          break;
-        case "strike":
-          document.execCommand("strikeThrough");
-          break;
-        case "link": {
-          const url = prompt("Введите адрес ссылки (URL):", "https://");
-          if (url && url.trim()) {
-            document.execCommand("createLink", false, url.trim());
-          }
-          break;
-        }
-        case "h1":
-          if (targetBlock) {
-            handleChangeBlockType(targetBlock.id, "heading1");
-          } else {
-            handleAddBlock("heading1");
-          }
-          break;
-        case "h2":
-          if (targetBlock) {
-            handleChangeBlockType(targetBlock.id, "heading2");
-          } else {
-            handleAddBlock("heading2");
-          }
-          break;
-        case "h3":
-          if (targetBlock) {
-            handleChangeBlockType(targetBlock.id, "heading3");
-          } else {
-            handleAddBlock("heading3");
-          }
-          break;
-        case "bullet-list":
-          if (targetBlock) {
-            handleChangeBlockType(targetBlock.id, "bullet-list");
-          } else {
-            handleAddBlock("bullet-list");
-          }
-          break;
-        case "numbered-list":
-          if (targetBlock) {
-            handleChangeBlockType(targetBlock.id, "numbered-list");
-          } else {
-            handleAddBlock("numbered-list");
-          }
-          break;
-        case "todo-list":
-          if (targetBlock) {
-            handleChangeBlockType(targetBlock.id, "todo");
-          } else {
-            handleAddBlock("todo");
-          }
-          break;
-        case "quote":
-          if (targetBlock) {
-            handleChangeBlockType(targetBlock.id, "quote");
-          } else {
-            handleAddBlock("quote");
-          }
-          break;
-        case "code":
-          if (targetBlock) {
-            handleChangeBlockType(targetBlock.id, "code-block");
-          } else {
-            handleAddBlock("code-block");
-          }
-          break;
-        case "table":
-          handleAddBlock("table", undefined, targetBlock?.id);
-          break;
-        case "image":
-          handleAddBlock("image", undefined, targetBlock?.id);
-          break;
-      }
-    },
-    [activeBlockId, canEdit, handleAddBlock, handleChangeBlockType, handleUndoBlockOp]
-  );
-
-  // Perform meaningful Merkle Commit
-  const handlePerformCommit = useCallback(
-    async (params: { message: string; description?: string; branch: string }) => {
-      const doc = docRef.current;
-      if (!doc || !canEdit) return;
-
-      const markdown = serializeCRDTToMarkdown(doc);
-      branchContentsRef.current[params.branch] = markdown;
-      useWorkspaceStore.getState().saveDocumentContent(documentId, markdown, title);
-
-      const fullMessage = params.description
-        ? `${params.message}\n\n${params.description}`
-        : params.message;
-
-      const res = await fetch(`/api/documents/${documentId}/commits`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          branch: params.branch,
-          parents: currentCommitId ? [currentCommitId] : [],
-          stateVector: { crdt_clock: 1 },
-          message: fullMessage,
-          content: markdown,
-        }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Не удалось создать коммит");
-      }
-
-      const data = await res.json();
-      if (data.commit) {
-        setCommits((prev) => [...prev, data.commit]);
-        setCurrentCommitId(data.commit.id);
-        if (params.branch !== branch) {
-          setBranch(params.branch);
-        }
-        if (!branches.includes(params.branch)) {
-          setBranches((prev) => [...prev, params.branch]);
-        }
-      }
-
-      setSaveStatus("saved");
-    },
-    [branch, branches, canEdit, currentCommitId, documentId, title]
-  );
-
-  // Branch Switching: Switches document content and active commit
-  const handleSelectBranch = useCallback(
-    (targetBranch: string) => {
-      if (targetBranch === branch) return;
-
-      const doc = docRef.current;
-      if (doc) {
-        // 1. Preserve current branch's draft
-        const currentMd = serializeCRDTToMarkdown(doc);
-        branchContentsRef.current[branch] = currentMd;
-      }
-
-      // 2. Determine target branch's content
-      let targetContent = branchContentsRef.current[targetBranch];
-
-      // If not yet in memory draft, find latest commit on targetBranch
-      if (!targetContent) {
-        const branchCommits = commits.filter((c) => c.branch === targetBranch);
-        if (branchCommits.length > 0) {
-          const headCommit = branchCommits[branchCommits.length - 1];
-          if (headCommit.content) {
-            targetContent = headCommit.content;
-          }
-          setCurrentCommitId(headCommit.id);
-        }
-      }
-
-      if (!targetContent) {
-        targetContent = branchContentsRef.current["main"] || `# ${title}\n\nВетка ${targetBranch}`;
-      }
-
-      branchContentsRef.current[targetBranch] = targetContent;
-      setBranch(targetBranch);
-
-      // 3. Load target content into CRDT
-      const freshDoc = new CRDTDocument(1);
-      docRef.current = freshDoc;
-      initCRDTFromMarkdown(freshDoc, targetContent);
-      freshDoc.onUpdate(refreshBlocks);
-      refreshBlocks();
-    },
-    [branch, commits, refreshBlocks, title]
-  );
-
-  // Branch creation with backend persistence
-  const handleCreateBranch = useCallback(
-    async (newBranch: string, fromCommitId?: string) => {
-      const cleanBranch = newBranch.trim().replace(/\s+/g, "-");
-      if (!cleanBranch) return;
-
-      const baseId = fromCommitId || currentCommitId || (commits.length > 0 ? commits[commits.length - 1].id : undefined);
-
-      try {
-        const res = await fetch(`/api/documents/${documentId}/branches`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            name: cleanBranch,
-            fromCommitId: baseId,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.branch) {
-            setBranchesInfo((prev) => [
-              ...prev.filter((b) => b.name !== cleanBranch),
-              data.branch,
-            ]);
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to persist branch on server:", err);
-      }
-
-      if (!branches.includes(cleanBranch)) {
-        setBranches((prev) => [...prev, cleanBranch]);
-      }
-
-      // Determine initial content from base commit if provided, or from current draft
-      const baseCommit = baseId ? commits.find((c) => c.id === baseId) : null;
-      const initialBranchContent =
-        baseCommit?.content ??
-        (docRef.current ? serializeCRDTToMarkdown(docRef.current) : "");
-
-      branchContentsRef.current[cleanBranch] = initialBranchContent;
-      handleSelectBranch(cleanBranch);
-    },
-    [branches, currentCommitId, commits, documentId, handleSelectBranch]
-  );
-
-  // Fork branch confirmation handler
-  const handleConfirmFork = useCallback(
-    (branchName: string, sourceCommitId: string) => {
-      handleCreateBranch(branchName, sourceCommitId);
-      setTimeTravelIndex(null);
-    },
-    [handleCreateBranch]
-  );
-
-  // Revert commit handler
-  const handleRevertCommit = useCallback(
-    async (commitId: string) => {
-      try {
-        const res = await fetch(`/api/documents/${documentId}/commits/revert`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            commitId,
-            branch,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.commit) {
-            setCommits((prev) => [...prev, data.commit]);
-            setCurrentCommitId(data.commit.id);
-            const revertedContent = data.revertedContent ?? data.commit.content ?? "";
-            branchContentsRef.current[branch] = revertedContent;
-            useWorkspaceStore.getState().saveDocumentContent(documentId, revertedContent, title);
-
-            const freshDoc = new CRDTDocument(1);
-            docRef.current = freshDoc;
-            initCRDTFromMarkdown(freshDoc, revertedContent);
-            freshDoc.onUpdate(refreshBlocks);
-            refreshBlocks();
-            setTimeTravelIndex(null);
-          }
-        }
-      } catch (err) {
-        console.error("Revert commit error:", err);
-      }
-    },
-    [branch, documentId, refreshBlocks, title]
-  );
-
-  // Delete commit handler
-  const handleDeleteCommit = useCallback(
-    async (commitId: string) => {
-      try {
-        const res = await fetch(
-          `/api/documents/${documentId}/commits?commitId=${encodeURIComponent(commitId)}`,
-          {
-            method: "DELETE",
-            credentials: "include",
-          }
-        );
-
-        if (res.ok) {
-          const data = await res.json();
-          setCommits((prev) => prev.filter((c) => c.id !== commitId));
-          if (data.newHeadCommitId) {
-            setCurrentCommitId(data.newHeadCommitId);
-            const nextCommit = commits.find((c) => c.id === data.newHeadCommitId);
-            if (nextCommit?.content) {
-              branchContentsRef.current[branch] = nextCommit.content;
-              const freshDoc = new CRDTDocument(1);
-              docRef.current = freshDoc;
-              initCRDTFromMarkdown(freshDoc, nextCommit.content);
-              freshDoc.onUpdate(refreshBlocks);
-              refreshBlocks();
-            }
-          }
-          setTimeTravelIndex(null);
-        }
-      } catch (err) {
-        console.error("Delete commit error:", err);
-      }
-    },
-    [branch, commits, documentId, refreshBlocks]
-  );
-
-  // Real 3-Way Merge handler
-  const handleConfirmMerge = async (source: string, target: string, resolvedContent?: string) => {
-    try {
-      const res = await fetch(`/api/documents/${documentId}/merge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          sourceBranch: source,
-          targetBranch: target,
-          targetCommitId: currentCommitId,
-          resolvedContent,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.mergeCommit) {
-          setCommits((prev) => [...prev, data.mergeCommit]);
-          setCurrentCommitId(data.mergeCommit.id);
-          const finalMergedText = data.mergedPlainText ?? data.mergeCommit.content;
-          if (finalMergedText !== undefined && finalMergedText !== null) {
-            branchContentsRef.current[target] = finalMergedText;
-            useWorkspaceStore.getState().saveDocumentContent(documentId, finalMergedText, title);
-
-            if (branch === target) {
-              const freshDoc = new CRDTDocument(1);
-              docRef.current = freshDoc;
-              initCRDTFromMarkdown(freshDoc, finalMergedText);
-              freshDoc.onUpdate(refreshBlocks);
-              refreshBlocks();
-            } else {
-              handleSelectBranch(target);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.warn("[3-Way Merge error]:", err);
-    }
-  };
-
-  // Import local Markdown or text file
-  const handleImportMarkdown = useCallback(
-    (content: string, filename?: string) => {
-      if (!canEdit) return;
-
-      const freshDoc = new CRDTDocument(1);
-      docRef.current = freshDoc;
-      initCRDTFromMarkdown(freshDoc, content);
-      freshDoc.onUpdate(refreshBlocks);
-      refreshBlocks();
-
-      branchContentsRef.current[branch] = content;
-
-      if (filename && (title === "Новый документ" || !title.trim())) {
-        handleTitleChange(filename);
+  const handleColorChange = useCallback(
+    (color: string) => {
+      if (!editor || !canEdit) return;
+      if (color === "inherit") {
+        editor.chain().focus().unsetColor().run();
       } else {
-        triggerAutoSave();
+        editor.chain().focus().setColor(color).run();
       }
     },
-    [branch, canEdit, handleTitleChange, refreshBlocks, title, triggerAutoSave]
+    [editor, canEdit]
   );
 
-  // Delete current document
-  const handleDeleteDocument = useCallback(async () => {
-    try {
-      await fetch(`/api/documents/${documentId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      useWorkspaceStore.getState().deleteDocument(documentId);
-      router.push("/dashboard");
-    } catch (err) {
-      console.error("Failed to delete document:", err);
-      router.push("/dashboard");
-    }
-  }, [documentId, router]);
-
-  // Export handlers
-  const handleExportMarkdown = useCallback(() => {
-    const doc = docRef.current;
-    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${title.trim().replace(/\s+/g, "_")}.md`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, [blockTexts, title]);
-
-  const handleExportPdf = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.print();
-    }
-  }, []);
-
-  const handleExportMarkdownZip = useCallback(async () => {
-    const doc = docRef.current;
-    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
-    const blob = await DocumentConverter.exportMarkdownZip(title || "Документ", content);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${title.trim().replace(/\s+/g, "_") || "document"}.zip`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, [blockTexts, title]);
-
-  const handleChangeSpacing = useCallback(
-    (
-      spacing: { lineHeight: number | string; paragraphSpacing: number; letterSpacing: string },
-      applyToAll: boolean = true
-    ) => {
-      setPageLayout((prev) => {
-        const updated = {
-          ...prev,
-          lineHeight: spacing.lineHeight,
-          paragraphSpacing: spacing.paragraphSpacing,
-          letterSpacing: spacing.letterSpacing,
-        };
-        try {
-          localStorage.setItem(`syncpro_layout_${documentId}`, JSON.stringify(updated));
-        } catch {}
-        return updated;
-      });
-
-      if (!applyToAll && activeBlockId && canEdit) {
-        const doc = docRef.current;
-        if (doc) {
-          try {
-            const blockId = parseID(activeBlockId);
-            const currentText = doc.getBlockText(blockId);
-            const lhStyle = `line-height: ${spacing.lineHeight}`;
-            const mbStyle = `margin-bottom: ${spacing.paragraphSpacing}px`;
-            const lsStyle = spacing.letterSpacing !== "normal" ? `letter-spacing: ${spacing.letterSpacing}` : "";
-            const combinedStyle = [lhStyle, mbStyle, lsStyle].filter(Boolean).join("; ");
-
-            let updatedText = currentText;
-            if (updatedText.startsWith('<div style="') && updatedText.endsWith("</div>")) {
-              updatedText = updatedText.replace(/<div style="([^"]*)">([\s\S]*)<\/div>/, (_m, oldStyle, inner) => {
-                return `<div style="${oldStyle}; ${combinedStyle}">${inner}</div>`;
-              });
-            } else if (currentText.trim()) {
-              updatedText = `<div style="${combinedStyle}">${currentText}</div>`;
-            }
-            if (updatedText !== currentText) {
-              handleTextChange(blockId, updatedText);
-            }
-          } catch {}
-        }
+  const handleHighlightChange = useCallback(
+    (color: string) => {
+      if (!editor || !canEdit) return;
+      if (color === "transparent") {
+        editor.chain().focus().unsetHighlight().run();
+      } else {
+        editor.chain().focus().setHighlight({ color }).run();
       }
     },
-    [documentId, activeBlockId, canEdit, handleTextChange]
+    [editor, canEdit]
+  );
+
+  const handleAlignChange = useCallback(
+    (align: "left" | "center" | "right" | "justify") => {
+      if (!editor || !canEdit) return;
+      editor.chain().focus().setTextAlign(align).run();
+    },
+    [editor, canEdit]
+  );
+
+  const handleSpacingChange = useCallback(
+    (spacing: { lineHeight: number | string; paragraphSpacing: number; letterSpacing: string }) => {
+      setPageLayout((prev) => ({
+        ...prev,
+        lineHeight: spacing.lineHeight,
+        paragraphSpacing: spacing.paragraphSpacing,
+        letterSpacing: spacing.letterSpacing,
+      }));
+      if (editor) {
+        editor.chain().focus().setLineHeight(String(spacing.lineHeight)).run();
+      }
+    },
+    [editor]
   );
 
   const handleInsertLink = useCallback(
     (linkData: { url: string; text: string; openInNewTab: boolean }) => {
-      if (!canEdit) return;
-      const escapeHtml = (str: string) =>
-        str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-      const safeUrl = escapeHtml(linkData.url);
-      const safeText = escapeHtml(linkData.text);
-      const targetAttr = linkData.openInNewTab ? ' target="_blank" rel="noopener noreferrer"' : '';
-      const linkHtml = `<a href="${safeUrl}"${targetAttr}>${safeText}</a>`;
-      if (typeof document !== "undefined") {
-        document.execCommand("insertHTML", false, linkHtml);
+      if (!editor || !canEdit) return;
+      if (!editor.state.selection.empty) {
+        editor.commands.setLink({ href: linkData.url });
+      } else {
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: "text",
+            text: linkData.text || linkData.url,
+            marks: [{ type: "link", attrs: { href: linkData.url } }],
+          })
+          .run();
       }
     },
-    [canEdit]
+    [editor, canEdit]
   );
 
-  // Seamless arrow navigation between blocks skipping media and page breaks
-  const handleNavigatePrev = useCallback(
-    (blockKey: string) => {
-      const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
-      if (idx <= 0) return;
-
-      for (let i = idx - 1; i >= 0; i--) {
-        const targetBlock = blocksState[i];
-        const targetKey = formatID(targetBlock.id);
-        const el = document.getElementById(`block-${targetKey}`);
-        if (!el) continue;
-
-        // Find all visible editable text elements in this target block (exclude range sliders, buttons, file pickers)
-        const candidates = Array.from(
-          el.querySelectorAll<HTMLElement>(
-            '[contenteditable="true"], textarea, input[type="text"], input:not([type])'
-          )
-        ).filter(
-          (elem) =>
-            !elem.closest(".editor-ui-control") &&
-            !elem.closest(".editor-canvas-ui") &&
-            (elem.offsetWidth > 0 ||
-              elem.offsetHeight > 0 ||
-              elem.offsetParent !== null)
-        );
-
-        if (candidates.length > 0) {
-          const editable = candidates[candidates.length - 1]; // Last editable when going backward
-          setActiveBlockId(targetKey);
-          editable.focus({ preventScroll: true });
-          if (
-            editable.tagName.toLowerCase() !== "textarea" &&
-            editable.tagName.toLowerCase() !== "input"
-          ) {
-            const range = document.createRange();
-            range.selectNodeContents(editable);
-            range.collapse(false); // End of block text
-            const sel = window.getSelection();
-            if (sel) {
-              sel.removeAllRanges();
-              sel.addRange(range);
-            }
-          }
-          return;
-        }
-        // If block has no visible editable inputs (e.g. image, divider, page break),
-        // keep scanning backwards to land on the nearest editable text block!
-      }
-    },
-    [blocksState]
-  );
-
-  const handleNavigateNext = useCallback(
-    (blockKey: string) => {
-      const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
-      if (idx < 0 || idx >= blocksState.length - 1) return;
-
-      for (let i = idx + 1; i < blocksState.length; i++) {
-        const targetBlock = blocksState[i];
-        const targetKey = formatID(targetBlock.id);
-        const el = document.getElementById(`block-${targetKey}`);
-        if (!el) continue;
-
-        // Find all visible editable text elements in this target block (exclude range sliders, buttons, file pickers)
-        const candidates = Array.from(
-          el.querySelectorAll<HTMLElement>(
-            '[contenteditable="true"], textarea, input[type="text"], input:not([type])'
-          )
-        ).filter(
-          (elem) =>
-            !elem.closest(".editor-ui-control") &&
-            !elem.closest(".editor-canvas-ui") &&
-            (elem.offsetWidth > 0 ||
-              elem.offsetHeight > 0 ||
-              elem.offsetParent !== null)
-        );
-
-        if (candidates.length > 0) {
-          const editable = candidates[0]; // First editable when going forward
-          setActiveBlockId(targetKey);
-          editable.focus({ preventScroll: true });
-          if (
-            editable.tagName.toLowerCase() !== "textarea" &&
-            editable.tagName.toLowerCase() !== "input"
-          ) {
-            const range = document.createRange();
-            range.selectNodeContents(editable);
-            range.collapse(true); // Beginning of block text
-            const sel = window.getSelection();
-            if (sel) {
-              sel.removeAllRanges();
-              sel.addRange(range);
-            }
-          }
-          return;
-        }
-        // If block has no visible editable inputs (e.g. image, divider, page break),
-        // keep scanning forwards to land on the nearest editable text block!
-      }
-    },
-    [blocksState]
-  );
-
-  const handleMergeWithPrev = useCallback(
-    (blockKey: string, currentText: string) => {
-      const idx = blocksState.findIndex((b) => formatID(b.id) === blockKey);
-      if (idx <= 0) return;
-
-      const prevBlock = blocksState[idx - 1];
-      const currentBlock = blocksState[idx];
-      const doc = docRef.current;
-      if (!doc) return;
-
-      // Case 1: Previous block is a page-break -> remove the break, leave text block safe!
-      if (prevBlock.blockType === "page-break") {
-        handleDeleteBlock(prevBlock.id, false);
-        return;
-      }
-
-      // Case 2: Previous block is non-text (image, table, etc.) -> do NOT destroy user's text!
-      const isPrevText = [
-        "paragraph",
-        "heading-1",
-        "heading-2",
-        "heading-3",
-        "bullet-list",
-        "numbered-list",
-        "todo",
-        "quote",
-        "callout",
-        "code-block",
-      ].includes(prevBlock.blockType);
-
-      if (!isPrevText) {
-        const prevKey = formatID(prevBlock.id);
-        setActiveBlockId(prevKey);
-        return;
-      }
-
-      // Case 3: Merge text of current block into previous block
-      const prevText = doc.getBlockText(prevBlock.id);
-      const combined = prevText + currentText;
-
-      // Update CRDT
-      handleTextChange(prevBlock.id, combined);
-
-      // Immediately update DOM of prevBlock and place caret at merge boundary (prevText.length)
-      const prevKey = formatID(prevBlock.id);
-      setActiveBlockId(prevKey);
-      const el = document.getElementById(`block-${prevKey}`);
-      if (el) {
-        const editable = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
-        if (editable) {
-          editable.innerHTML = markdownToHtml(combined);
-          setTimeout(() => {
-            setCaretAtCharOffset(editable, prevText.length);
-          }, 0);
-        }
-      }
-
-      // Push undo record for Ctrl+Z
-      blockUndoStackRef.current.push({
-        type: "merge",
-        prevBlockId: prevBlock.id,
-        currentBlockId: currentBlock.id,
-        currentBlockType: currentBlock.blockType,
-        prevText,
-        currentText,
-      });
-
-      // Safely delete current block now that text is securely merged
-      handleDeleteBlock(currentBlock.id, false);
-    },
-    [blocksState, handleDeleteBlock, handleTextChange]
-  );
-
-  // Multi-block Selection Handlers
-  const handleSelectBlockRange = useCallback(
-    (startKey: string, endKey: string) => {
-      const startIdx = blocksState.findIndex((b) => formatID(b.id) === startKey);
-      const endIdx = blocksState.findIndex((b) => formatID(b.id) === endKey);
-      if (startIdx === -1 || endIdx === -1) return;
-
-      const [minIdx, maxIdx] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
-      const rangeKeys = blocksState.slice(minIdx, maxIdx + 1).map((b) => formatID(b.id));
-      setSelectedBlockIds(rangeKeys);
-    },
-    [blocksState]
-  );
-
-  const handleClearMultiSelection = useCallback(() => {
-    setSelectedBlockIds([]);
-  }, []);
-
-  // Multi-block Keyboard Shortcuts (Copy, Delete, Clear)
-  useEffect(() => {
-    const handleMultiSelectKeys = (e: KeyboardEvent) => {
-      if (selectedBlockIds.length <= 1) return;
-
-      // Copy multi-block text
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        const text = selectedBlockIds.map((k) => blockTexts[k] ?? "").join("\n\n");
-        navigator.clipboard.writeText(text);
-        return;
-      }
-
-      // Cut / Delete multi-block
-      if (
-        e.key === "Backspace" ||
-        e.key === "Delete" ||
-        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x")
-      ) {
-        e.preventDefault();
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "x") {
-          const text = selectedBlockIds.map((k) => blockTexts[k] ?? "").join("\n\n");
-          navigator.clipboard.writeText(text);
-        }
-        const [firstKey, ...restKeys] = selectedBlockIds;
-        for (const k of restKeys) {
-          const b = blocksState.find((x) => formatID(x.id) === k);
-          if (b) handleDeleteBlock(b.id, false);
-        }
-        const firstB = blocksState.find((x) => formatID(x.id) === firstKey);
-        if (firstB) {
-          handleTextChange(firstB.id, "");
-          const el = document.getElementById(`block-${firstKey}`);
-          if (el) {
-            const ed = el.querySelector('[contenteditable="true"]') as HTMLElement | null;
-            if (ed) {
-              ed.innerHTML = "";
-              ed.focus();
-            }
-          }
-        }
-        setSelectedBlockIds([]);
-        return;
-      }
-
-      if (e.key === "Escape") {
-        setSelectedBlockIds([]);
-      }
-    };
-
-    window.addEventListener("keydown", handleMultiSelectKeys);
-    return () => window.removeEventListener("keydown", handleMultiSelectKeys);
-  }, [selectedBlockIds, blockTexts, blocksState, handleDeleteBlock, handleTextChange]);
-
-  // Global Ctrl+Z block undo handler
-  useEffect(() => {
-    const handleGlobalUndo = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
-        if (blockUndoStackRef.current.length > 0) {
-          e.preventDefault();
-          handleUndoBlockOp();
-        }
-      }
-    };
-    window.addEventListener("keydown", handleGlobalUndo);
-    return () => window.removeEventListener("keydown", handleGlobalUndo);
-  }, [handleUndoBlockOp]);
-
-  // Drag-and-drop image file onto document sheet
   const handleDropImage = useCallback(
     async (file: File) => {
-      if (!canEdit) return;
-      const formData = new FormData();
-      formData.append("file", file);
-      if (documentId) formData.append("documentId", documentId);
-
+      if (!editor || !canEdit) return;
       try {
+        const formData = new FormData();
+        formData.append("file", file);
         const res = await fetch("/api/upload", {
           method: "POST",
           credentials: "include",
@@ -1736,455 +520,387 @@ export function EditorShell({ documentId = "doc_1" }: EditorShellProps) {
         });
         if (res.ok) {
           const data = await res.json();
-          const caption = file.name.replace(/\.[^/.]+$/, "");
-          const imageMd = `![${caption}|width=100%|align=center](${data.url})`;
-          const afterId = activeBlockId ? parseID(activeBlockId) : null;
-          handleAddBlock("image", imageMd, afterId);
+          if (data.url) {
+            editor.chain().focus().setImage({ src: data.url }).run();
+            return;
+          }
         }
-      } catch (err) {
-        console.error("Drop image error:", err);
-      }
+      } catch {}
+
+      // Fallback: local FileReader data URL
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const url = e.target?.result as string;
+        if (url) {
+          editor.chain().focus().setImage({ src: url }).run();
+        }
+      };
+      reader.readAsDataURL(file);
     },
-    [canEdit, documentId, activeBlockId, handleAddBlock]
+    [editor, canEdit]
   );
 
-  // Global Ctrl+V clipboard image paste & Drag-and-drop
-  useEffect(() => {
-    const handlePasteImage = async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
+  // Document Export (DOCX, ODT, PDF, Markdown, TXT)
+  const handleExport = useCallback(
+    async (format: string) => {
+      if (!editor) return;
+      const json = editor.getJSON();
 
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.type.startsWith("image/")) {
-          e.preventDefault();
-          e.stopPropagation();
-          const file = item.getAsFile();
-          if (!file) continue;
+      const downloadBlob = (blob: Blob, filename: string) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
 
-          const formData = new FormData();
-          formData.append("file", file);
-          if (documentId) formData.append("documentId", documentId);
+      try {
+        if (format === "docx") {
+          const blob = await DocumentConverter.exportTiptapToDocx(json, title, pageLayout);
+          downloadBlob(blob, `${title || "document"}.docx`);
+        } else if (format === "odt") {
+          const blob = await DocumentConverter.exportTiptapToOdt(json, title, pageLayout);
+          downloadBlob(blob, `${title || "document"}.odt`);
+        } else if (format === "pdf") {
+          window.print();
+        } else if (format === "txt") {
+          const text = editor.getText();
+          const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+          downloadBlob(blob, `${title || "document"}.txt`);
+        } else if (format === "md") {
+          const text = editor.getText();
+          const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+          downloadBlob(blob, `${title || "document"}.md`);
+        }
+      } catch (err) {
+        console.error("Export error:", err);
+      }
+    },
+    [editor, title, pageLayout]
+  );
 
-          try {
-            const res = await fetch("/api/upload", {
-              method: "POST",
-              credentials: "include",
-              body: formData,
-            });
-            if (res.ok) {
-              const data = await res.json();
-              const caption = file.name ? file.name.replace(/\.[^/.]+$/, "") : "Скриншот";
-              const imageMd = `![${caption}|width=100%|align=center](${data.url})`;
-              const afterId = activeBlockId ? parseID(activeBlockId) : null;
-              handleAddBlock("image", imageMd, afterId);
-            }
-          } catch (err) {
-            console.error("Paste image error:", err);
+  // Branch switching
+  const handleSelectBranch = useCallback(
+    (branchName: string) => {
+      if (branchName === activeBranch) return;
+      if (editor) {
+        branchContentsRef.current[activeBranch] = JSON.stringify(editor.getJSON());
+      }
+      setActiveBranch(branchName);
+
+      const targetContent = branchContentsRef.current[branchName];
+      if (editor) {
+        const parsed = parseInitialTiptapContent(targetContent, title);
+        editor.commands.setContent(parsed);
+      }
+    },
+    [activeBranch, editor, title]
+  );
+
+  // Branch creation
+  const handleCreateBranch = useCallback(
+    async (name: string) => {
+      try {
+        const res = await fetch(`/api/documents/${documentId}/branches`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ name }),
+        });
+        if (res.ok) {
+          setBranches((prev) => Array.from(new Set([...prev, name])));
+          handleSelectBranch(name);
+        }
+      } catch {}
+    },
+    [documentId, handleSelectBranch]
+  );
+
+  // Commit Creation
+  const handleCreateCommit = useCallback(
+    async (message: string) => {
+      if (!editor) return;
+      const jsonContent = editor.getJSON();
+      const contentStr = JSON.stringify(jsonContent);
+
+      try {
+        const res = await fetch(`/api/documents/${documentId}/commits`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            message,
+            branch: activeBranch,
+            content: contentStr,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.commit) {
+            setCommits((prev) => [...prev, data.commit]);
+            setCurrentCommitId(data.commit.id);
           }
-          return;
+        }
+      } catch {}
+    },
+    [editor, documentId, activeBranch]
+  );
+
+  // Time travel history slider
+  const handleTimeTravelCommitChange = useCallback(
+    (commitIndex: number) => {
+      setTimeTravelIndex(commitIndex);
+      const commit = commits[commitIndex];
+      if (commit && commit.content && editor) {
+        const parsed = parseInitialTiptapContent(commit.content, title);
+        editor.commands.setContent(parsed);
+      }
+    },
+    [commits, editor, title]
+  );
+
+  const handleExitTimeTravel = useCallback(() => {
+    setIsTimeTraveling(false);
+    const activeContent = branchContentsRef.current[activeBranch];
+    if (editor && activeContent) {
+      const parsed = parseInitialTiptapContent(activeContent, title);
+      editor.commands.setContent(parsed);
+    }
+  }, [activeBranch, editor, title]);
+
+  // Extract outline headings from Tiptap AST
+  const headings: HeadingItem[] = useMemo(() => {
+    if (!editor) return [];
+    const items: HeadingItem[] = [];
+    const json = editor.getJSON();
+
+    const traverse = (node: JSONContent) => {
+      if (node.type === "heading") {
+        const text = (node.content || []).map((c) => c.text || "").join("");
+        if (text) {
+          items.push({
+            id: `heading-${items.length}`,
+            text,
+            level: node.attrs?.level || 1,
+          });
         }
       }
-    };
-
-    const handleWindowDragOver = (e: DragEvent) => {
-      e.preventDefault();
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = "copy";
+      if (node.content && Array.isArray(node.content)) {
+        node.content.forEach(traverse);
       }
     };
-
-    const handleWindowDrop = async (e: DragEvent) => {
-      const file = e.dataTransfer?.files?.[0];
-      if (file && file.type.startsWith("image/")) {
-        e.preventDefault();
-        e.stopPropagation();
-        handleDropImage(file);
-      }
-    };
-
-    document.addEventListener("paste", handlePasteImage, true);
-    window.addEventListener("dragover", handleWindowDragOver);
-    window.addEventListener("drop", handleWindowDrop);
-
-    return () => {
-      document.removeEventListener("paste", handlePasteImage, true);
-      window.removeEventListener("dragover", handleWindowDragOver);
-      window.removeEventListener("drop", handleWindowDrop);
-    };
-  }, [documentId, activeBlockId, handleAddBlock, handleDropImage]);
-
-  const handleExportDocx = useCallback(async () => {
-    const doc = docRef.current;
-    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
-    const blob = await DocumentConverter.exportDocx(title || "Документ", content);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${title.trim().replace(/\s+/g, "_") || "document"}.docx`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, [blockTexts, title]);
-
-  const handleExportOdt = useCallback(async () => {
-    const doc = docRef.current;
-    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
-    const blob = await DocumentConverter.exportOdt(title || "Документ", content);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${title.trim().replace(/\s+/g, "_") || "document"}.odt`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, [blockTexts, title]);
-
-  const handleExportTxt = useCallback(() => {
-    const doc = docRef.current;
-    const content = doc ? serializeCRDTToMarkdown(doc) : Object.values(blockTexts).join("\n\n");
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${title.trim().replace(/\s+/g, "_") || "document"}.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }, [blockTexts, title]);
-
-  const handleImportFile = useCallback(async (file: File) => {
-    if (!canEdit) return;
-    try {
-      const converted = await DocumentConverter.importFile(file);
-      if (converted.title && (!title || title === "Новый документ")) {
-        handleTitleChange(converted.title);
-      }
-      branchContentsRef.current[branch] = converted.markdown;
-      useWorkspaceStore.getState().saveDocumentContent(documentId, converted.markdown, converted.title || title);
-      const freshDoc = new CRDTDocument(1);
-      docRef.current = freshDoc;
-      initCRDTFromMarkdown(freshDoc, converted.markdown);
-      freshDoc.onUpdate(refreshBlocks);
-      refreshBlocks();
-      triggerAutoSave();
-    } catch (err) {
-      console.error("Failed to import file:", err);
-    }
-  }, [branch, canEdit, documentId, handleTitleChange, refreshBlocks, title, triggerAutoSave]);
-
-  // Calculate total stats
-  const stats = useMemo(() => {
-    let words = 0;
-    let chars = 0;
-    for (const text of Object.values(blockTexts)) {
-      chars += text.length;
-      words += text.trim().split(/\s+/).filter(Boolean).length;
-    }
-    return { words, chars };
-  }, [blockTexts]);
-
-  // Dynamic headings for TOC
-  const headings: HeadingItem[] = useMemo(() => {
-    return blocksState
-      .filter((b) => b.blockType.startsWith("heading"))
-      .map((b) => {
-        const text = blockTexts[formatID(b.id)] || "Заголовок";
-        const level = b.blockType === "heading1" ? 1 : b.blockType === "heading2" ? 2 : 3;
-        return {
-          id: formatID(b.id),
-          text,
-          level,
-        };
-      });
-  }, [blocksState, blockTexts]);
-
-  // Scroll to heading
-  const handleScrollToHeading = (id: string) => {
-    const el = document.getElementById(`block-${id}`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      setActiveBlockId(id);
-    }
-  };
-
-  const currentDiffBase = useMemo(() => {
-    return "Платформа SyncPro совмещает математическое ядро Conflict-free Replicated Data Types (CRDT) на базе алгоритмов YATA и Fugue с графом контроля версий Merkle-DAG.";
-  }, []);
-
-  const currentDiffTarget = useMemo(() => {
-    return Object.values(blockTexts).join("\n\n") || currentDiffBase;
-  }, [blockTexts, currentDiffBase]);
+    traverse(json);
+    return items;
+  }, [editor]);
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden bg-background">
-      <EditorTopbar
-        title={title}
-        onTitleChange={handleTitleChange}
-        canEdit={canEdit}
-        roleTitle={
-          userRole === "viewer"
-            ? "Читатель"
-            : userRole === "commenter"
-            ? "Комменты"
-            : userRole === "owner"
-            ? "Владелец"
-            : "Редактор"
-        }
-        currentBranch={branch}
-        branches={branches}
-        onSelectBranch={handleSelectBranch}
-        onCreateBranch={handleCreateBranch}
-        onExportMarkdown={handleExportMarkdown}
-        onExportMarkdownZip={handleExportMarkdownZip}
-        onExportPdf={handleExportPdf}
-        onExportDocx={handleExportDocx}
-        onExportOdt={handleExportOdt}
-        onExportTxt={handleExportTxt}
-        onImportFile={handleImportFile}
-        onImportMarkdown={handleImportMarkdown}
-        onDeleteDocument={handleDeleteDocument}
-        onToggleHistory={() => setSidebarOpen(true)}
-        onToggleDiff={() => setIsDiffOpen(!isDiffOpen)}
-        saveStatus={saveStatus}
-        onSave={canEdit ? () => setIsCommitDialogOpen(true) : undefined}
-        onlineUsers={onlineUsers}
-      />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground font-sans">
+      {/* Topbar */}
+      <div className="print:hidden">
+        <EditorTopbar
+          title={title}
+          onTitleChange={handleTitleChange}
+          saveStatus={saveStatus}
+          canEdit={canEdit && !isTimeTraveling}
+          branches={branches}
+          currentBranch={activeBranch}
+          onSelectBranch={handleSelectBranch}
+          onCreateBranch={handleCreateBranch}
+          onExportDocx={() => handleExport("docx")}
+          onExportOdt={() => handleExport("odt")}
+          onExportPdf={() => handleExport("pdf")}
+          onExportTxt={() => handleExport("txt")}
+          onExportMarkdown={() => handleExport("md")}
+          onToggleHistory={() => {
+            setIsTimeTraveling((v) => !v);
+            setTimeTravelIndex(Math.max(0, commits.length - 1));
+          }}
+          onlineUsers={onlineUsers}
+          roleTitle={userRole === "owner" ? "Владелец" : userRole === "editor" ? "Редактор" : "Читатель"}
+        />
+      </div>
 
-      <EditorToolbar
-        onAction={handleToolbarAction}
-        disabled={!canEdit}
-        currentFont={activeFont}
-        currentSize={activeSize}
-        onFontChange={handleFontChange}
-        onSizeChange={handleSizeChange}
-        onColorChange={handleColorChange}
-        onHighlightChange={handleHighlightChange}
-        onAlignChange={handleAlignChange}
-        pageConfig={pageLayout}
-        onChangePageConfig={handlePageLayoutChange}
-        onInsertPageBreak={() => {
-          if (!canEdit) return;
-          if (activeBlockId) {
-            const currentBlockId = parseID(activeBlockId);
-            const pb = handleAddBlock("page-break", undefined, currentBlockId);
-            if (pb) {
-              handleAddBlock("paragraph", undefined, pb.id);
-            }
-          } else {
-            handleAddPage();
-          }
-        }}
-        currentLineHeight={pageLayout.lineHeight || 1.5}
-        currentParagraphSpacing={pageLayout.paragraphSpacing ?? 8}
-        currentLetterSpacing={pageLayout.letterSpacing || "normal"}
-        onChangeSpacing={handleChangeSpacing}
-        onInsertLink={handleInsertLink}
-      />
+      {/* Ribbon Toolbar */}
+      <div className="print:hidden">
+        <EditorToolbar
+          onAction={handleToolbarAction}
+          disabled={!canEdit || isTimeTraveling}
+          currentFont={activeFont}
+          currentSize={activeSize}
+          onFontChange={handleFontChange}
+          onSizeChange={handleSizeChange}
+          onColorChange={handleColorChange}
+          onHighlightChange={handleHighlightChange}
+          onAlignChange={handleAlignChange}
+          pageConfig={pageLayout}
+          onChangePageConfig={(updates) => setPageLayout((prev) => ({ ...prev, ...updates }))}
+          onInsertPageBreak={() => handleToolbarAction("pagebreak")}
+          currentLineHeight={pageLayout.lineHeight || 1.5}
+          currentParagraphSpacing={pageLayout.paragraphSpacing || 8}
+          currentLetterSpacing={pageLayout.letterSpacing || "normal"}
+          onChangeSpacing={handleSpacingChange}
+          onInsertLink={handleInsertLink}
+        />
+      </div>
 
-      {/* Main editor area */}
-      <div className="flex flex-1 min-h-0 overflow-hidden relative">
-        {/* Paged Document Canvas */}
-        <div className="flex-1 overflow-hidden flex flex-col relative">
-          {/* Diff panel overlay if open */}
-          {isDiffOpen && (
-            <div className="w-full max-w-4xl mx-auto p-4 z-20">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Анализ расхождений веток (LCA Diff)
-                </span>
+      {/* Main Canvas + Sidebar Area */}
+      <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+          {/* Visual LCA Diff Banner */}
+          {isComparingLCA && lcaDiffData && (
+            <div className="p-3 bg-muted/90 border-b border-border z-20 flex flex-col gap-2 shadow-md">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold">Сравнение версий (LCA Diff)</span>
                 <Button
-                  variant="ghost"
                   size="sm"
-                  onClick={() => setIsDiffOpen(false)}
-                  className="h-6 w-6 p-0 cursor-pointer"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs gap-1"
+                  onClick={() => setIsComparingLCA(false)}
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3 w-3" />
+                  <span>Закрыть сравнение</span>
                 </Button>
               </div>
               <DiffViewer
-                oldText={currentDiffBase}
-                newText={currentDiffTarget}
+                oldText={lcaDiffData.oldContent}
+                newText={lcaDiffData.newContent}
                 oldLabel="LCA предок"
                 newLabel="Текущая ветка"
               />
             </div>
           )}
 
+          {/* Time Travel Floating Banner */}
+          {isTimeTraveling && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 w-full max-w-xl px-4 pointer-events-auto">
+              <TimeTravelSlider
+                commits={commits}
+                currentIndex={timeTravelIndex}
+                onIndexChange={handleTimeTravelCommitChange}
+                onExitTimeTravel={handleExitTimeTravel}
+                onForkBranch={(cId) => {
+                  const c = commits.find((x) => x.id === cId);
+                  if (c) {
+                    setForkSourceCommit(c);
+                    setIsForkDialogOpen(true);
+                  }
+                }}
+              />
+            </div>
+          )}
+
+          {/* Monolithic Google Docs Canvas */}
           <EditorErrorBoundary>
             <PagedCanvas
-              blocks={blocksState}
-            blockTexts={blockTexts}
-            pageConfig={pageLayout}
-            canEdit={canEdit}
-            activeBlockId={activeBlockId}
-            documentFont={documentFont}
-            documentId={documentId}
-            onFocusBlock={(bKey) => setActiveBlockId(bKey)}
-            onChangeText={(bKey, newText) => {
-              const b = blocksState.find((x) => formatID(x.id) === bKey);
-              if (b) handleTextChange(b.id, newText);
-            }}
-            onChangeType={(bKey, newType) => {
-              const b = blocksState.find((x) => formatID(x.id) === bKey);
-              if (b) handleChangeBlockType(b.id, newType);
-            }}
-            onDeleteBlock={(bKey) => {
-              const b = blocksState.find((x) => formatID(x.id) === bKey);
-              if (b) handleDeleteBlock(b.id);
-            }}
-            onInsertAfter={(bKey, type) => {
-              const b = blocksState.find((x) => formatID(x.id) === bKey);
-              handleAddBlock(type || "paragraph", undefined, b ? b.id : null);
-            }}
-            onEnter={(bKey) => {
-              const b = blocksState.find((x) => formatID(x.id) === bKey);
-              handleAddBlock("paragraph", undefined, b ? b.id : null);
-            }}
-            onBackspaceEmpty={(bKey) => {
-              const b = blocksState.find((x) => formatID(x.id) === bKey);
-              if (b) handleDeleteBlock(b.id);
-            }}
-            onNavigatePrev={handleNavigatePrev}
-            onNavigateNext={handleNavigateNext}
-            onMergeWithPrev={handleMergeWithPrev}
-            selectedBlockIds={selectedBlockIds}
-            onSelectBlockRange={handleSelectBlockRange}
-            onClearMultiSelection={handleClearMultiSelection}
-            remoteCursorsMap={remoteCursorsMap}
-            onDropImage={handleDropImage}
-            onSmartClick={handleSmartClick}
-            onDeletePageBreak={(breakId) => {
-              const b = blocksState.find((x) => formatID(x.id) === breakId);
-              if (b) handleDeleteBlock(b.id);
-            }}
-            onAddPage={handleAddPage}
-          />
+              pageConfig={pageLayout}
+              onPageConfigChange={(updates) => setPageLayout((prev) => ({ ...prev, ...updates }))}
+              canEdit={canEdit && !isTimeTraveling}
+              onDropImage={handleDropImage}
+              documentTitle={title}
+            >
+              <TiptapEditor
+                initialContent={initialContent}
+                editable={canEdit && !isTimeTraveling}
+                onEditorReady={(ed) => setEditor(ed)}
+                onUpdate={handleEditorUpdate}
+                onSelectionUpdate={handleSelectionUpdate}
+              />
+            </PagedCanvas>
           </EditorErrorBoundary>
         </div>
 
-        {/* Right collapsible sidebar */}
-        <EditorSidebar
-          open={sidebarOpen}
-          onToggle={() => setSidebarOpen(!sidebarOpen)}
-          documentId={documentId}
-          commits={commits}
-          currentCommitId={currentCommitId}
-          currentBranch={branch}
-          branches={branchesInfo}
-          headings={headings}
-          onSelectHeading={handleScrollToHeading}
-          onSelectCommit={(id) => {
-            setCurrentCommitId(id);
-            const idx = commits.findIndex((c) => c.id === id);
-            if (idx >= 0) {
-              setTimeTravelIndex(idx);
-              const targetCommit = commits[idx];
-              if (targetCommit?.content !== undefined && targetCommit.content !== null) {
-                const freshDoc = new CRDTDocument(1);
-                docRef.current = freshDoc;
-                initCRDTFromMarkdown(freshDoc, targetCommit.content);
-                freshDoc.onUpdate(refreshBlocks);
-                refreshBlocks();
+        {/* Collapsible Sidebar */}
+        <div className="print:hidden">
+          <EditorSidebar
+            open={sidebarOpen}
+            onToggle={() => setSidebarOpen(!sidebarOpen)}
+            documentId={documentId}
+            headings={headings}
+            commits={commits}
+            currentCommitId={currentCommitId || undefined}
+            branches={branchesInfo}
+            currentBranch={activeBranch}
+            onSelectCommit={(commitId) => {
+              const idx = commits.findIndex((c) => c.id === commitId);
+              if (idx !== -1) {
+                setIsTimeTraveling(true);
+                handleTimeTravelCommitChange(idx);
               }
-            }
-          }}
-          onForkBranch={(commitId) => {
-            const c = commits.find((x) => x.id === commitId) || null;
-            setForkSourceCommit(c);
-            setIsForkDialogOpen(true);
-          }}
-          onRevertCommit={handleRevertCommit}
-          onDeleteCommit={handleDeleteCommit}
-          canEdit={canEdit}
-          onOpenMergeDialog={() => setIsMergeOpen(true)}
-          onOpenDiffDialog={() => setIsDiffOpen(!isDiffOpen)}
-        />
-
-        {/* Time travel slider bottom dock */}
-        {timeTravelIndex !== null && commits.length > 0 && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 w-full max-w-2xl px-4">
-            <TimeTravelSlider
-              commits={commits}
-              currentIndex={timeTravelIndex}
-              onIndexChange={(idx) => {
-                setTimeTravelIndex(idx);
-                if (commits[idx]) {
-                  const targetCommit = commits[idx];
-                  setCurrentCommitId(targetCommit.id);
-                  if (targetCommit.content !== undefined && targetCommit.content !== null) {
-                    const freshDoc = new CRDTDocument(1);
-                    docRef.current = freshDoc;
-                    initCRDTFromMarkdown(freshDoc, targetCommit.content);
-                    freshDoc.onUpdate(refreshBlocks);
-                    refreshBlocks();
-                  }
-                }
-              }}
-              onExitTimeTravel={() => {
-                setTimeTravelIndex(null);
-                let currentContent = branchContentsRef.current[branch];
-                if (!currentContent) {
-                  const branchCommits = commits.filter((c) => c.branch === branch);
-                  if (branchCommits.length > 0) {
-                    currentContent = branchCommits[branchCommits.length - 1].content || "";
-                  }
-                }
-                if (!currentContent && commits.length > 0) {
-                  currentContent = commits[commits.length - 1].content || "";
-                }
-                if (currentContent && docRef.current) {
-                  const freshDoc = new CRDTDocument(1);
-                  docRef.current = freshDoc;
-                  initCRDTFromMarkdown(freshDoc, currentContent);
-                  freshDoc.onUpdate(refreshBlocks);
-                  refreshBlocks();
-                }
-              }}
-              onForkBranch={(commitId) => {
-                const c = commits.find((x) => x.id === commitId) || null;
+            }}
+            onForkBranch={(commitId) => {
+              const c = commits.find((x) => x.id === commitId);
+              if (c) {
                 setForkSourceCommit(c);
                 setIsForkDialogOpen(true);
-              }}
-              onRevertCommit={handleRevertCommit}
-            />
-          </div>
-        )}
+              }
+            }}
+            onOpenMergeDialog={() => setIsMergeDialogOpen(true)}
+            canEdit={canEdit && !isTimeTraveling}
+          />
+        </div>
       </div>
 
-      <EditorStatusbar
-        wordCount={stats.words}
-        charCount={stats.chars}
-        activeUsers={onlineUsers.length || 1}
-        branch={branch}
-        pageInfo={`${pageLayout.format.toUpperCase()} • ${pageLayout.orientation === "portrait" ? "Книжная" : "Альбомная"}`}
-      />
+      {/* Status Bar */}
+      <div className="print:hidden">
+        <EditorStatusbar
+          wordCount={stats.words}
+          charCount={stats.chars}
+          activeUsers={onlineUsers.length}
+          branch={activeBranch}
+          pageInfo={pageLayout.pageless ? "Бесстраничный" : "A4 • Страница 1"}
+        />
+      </div>
 
-      {/* 3-Way Merge dialog with conflict resolution */}
-      <MergeBranchDialog
-        open={isMergeOpen}
-        onOpenChange={setIsMergeOpen}
-        branches={branches}
-        currentBranch={branch}
-        documentId={documentId}
-        onConfirmMerge={handleConfirmMerge}
-      />
-
-      {/* Fork branch from commit dialog */}
-      <ForkBranchDialog
-        open={isForkDialogOpen}
-        onOpenChange={setIsForkDialogOpen}
-        sourceCommit={forkSourceCommit}
-        existingBranches={branches}
-        onConfirmFork={handleConfirmFork}
-      />
-
-      {/* Meaningful Merkle Commit Dialog */}
+      {/* Dialogs */}
       <CommitDialog
         open={isCommitDialogOpen}
         onOpenChange={setIsCommitDialogOpen}
-        currentBranch={branch}
+        currentBranch={activeBranch}
         branches={branches}
-        onCommit={handlePerformCommit}
+        onCommit={async ({ message }) => {
+          await handleCreateCommit(message);
+          setIsCommitDialogOpen(false);
+        }}
         stats={stats}
       />
+
+      <MergeBranchDialog
+        open={isMergeDialogOpen}
+        onOpenChange={setIsMergeDialogOpen}
+        currentBranch={activeBranch}
+        branches={branches}
+        documentId={documentId}
+        onConfirmMerge={async (source, target, resolved) => {
+          try {
+            const res = await fetch(`/api/documents/${documentId}/merge`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ sourceBranch: source, targetBranch: target, resolvedContent: resolved }),
+            });
+            if (res.ok) {
+              setIsMergeDialogOpen(false);
+              router.refresh();
+            }
+          } catch {}
+        }}
+      />
+
+      {forkSourceCommit && (
+        <ForkBranchDialog
+          open={isForkDialogOpen}
+          onOpenChange={setIsForkDialogOpen}
+          sourceCommit={forkSourceCommit}
+          existingBranches={branches}
+          onConfirmFork={(name) => {
+            handleCreateBranch(name);
+            setIsForkDialogOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
